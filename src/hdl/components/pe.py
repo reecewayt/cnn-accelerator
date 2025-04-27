@@ -1,5 +1,5 @@
 """
-Processing element with wave-based control for systolic array
+Processing element with simultaneous input for systolic array
 """
 
 from myhdl import *
@@ -8,69 +8,82 @@ from src.hdl.components.mac import mac
 
 @block
 def pe(
-    # Clock and control
-    i_clk,
+    clk,
+    # Inputs
+    i_a,
+    i_b,
+    i_data_valid,
+    i_read_en,
     i_reset,
-    i_en,  # Enable signal (wave control)
-    # Data signals
-    i_a,  # A input operand
-    i_b,  # B input operand
-    o_a,  # A output (pass-through)
-    o_b,  # B output (pass-through)
-    o_c,  # C output (result)
-    i_read_result,  # Read accumulated result
+    # Outputs
+    o_a,
+    o_b,
+    o_c,
+    o_saturate_detect,
+    # Parameters
     data_width=32,
     acc_width=64,
 ):
     """
-    A processing element (PE) with wave-based control for systolic arrays.
+    Processing Element (PE) for systolic array architecture
+    Elements see input values simultaneously, latching them when data is valid
+
+    Parameters:
+    - clk: Clock signal
+    - i_a, i_b: Input operands
+    - i_data_valid: Signal indicating valid input data
+    - i_read_en: Enable reading of result
+    - i_reset: Reset signal
+    - o_a, o_b: Pass-through outputs
+    - o_c: Output result
+    - o_saturate_detect: Overflow/saturation detection flag
+    - data_width: Width of input data
+    - acc_width: Width of accumulator
     """
+    # Reset signal check
     if not isinstance(i_reset, ResetSignal):
         raise ValueError("Reset signal must be a ResetSignal")
 
-    # Internal registers
-    a_reg = Signal(intbv(0)[data_width:0])
-    b_reg = Signal(intbv(0)[data_width:0])
-    c_reg = Signal(intbv(0)[acc_width:0])
+    # Internal signals for MAC unit
+    mac_result = Signal(intbv(0)[acc_width:])
+    mac_enable = Signal(bool(0))
+    mac_overflow = Signal(bool(0))
 
-    # Internal accumulator (required for combinational calculations)
-    accumulator = Signal(intbv(0)[acc_width:0])
+    # Instantiate the MAC unit
+    mac_unit = mac(
+        clk=clk,
+        reset=i_reset,
+        a=i_a,
+        b=i_b,
+        enable=mac_enable,
+        result=mac_result,
+        overflow=mac_overflow,
+    )
 
-    # Temporary product signal
-    product = Signal(intbv(0)[acc_width:0])
-
-    # Combinational product calculation
     @always_comb
-    def mult_logic():
-        product.next = a_reg * b_reg
-
-    # Sequential accumulation - c_reg must be updated in sequential logic
-    @always_seq(i_clk.posedge, reset=i_reset)
-    def register_logic():
-        if i_reset:
-            # Reset accumulator and registers
-            a_reg.next = 0
-            b_reg.next = 0
-            accumulator.next = 0
+    def mac_enable_logic():
+        """
+        Disable MAC unit if saturation is detected
+        """
+        if i_data_valid and not mac_overflow:
+            mac_enable.next = True
         else:
-            accumulator.next = accumulator + product
-            if i_en:
-                # Update data registers when enabled
-                a_reg.next = i_a
-                b_reg.next = i_b
-                # Accumulate product in the same cycle
-                accumulator.next = accumulator + product
+            mac_enable.next = False
 
-            # Update result register when read_result is high
-            if i_read_result:
-                c_reg.next = accumulator
-
-    # Output logic
     @always_comb
     def output_logic():
-        # Connect registers to outputs (always, not conditionally)
-        o_a.next = a_reg
-        o_b.next = b_reg
-        o_c.next = c_reg
+        # Direct pass-through of input values
+        o_a.next = i_a
+        o_b.next = i_b
+
+        # Output the MAC result when read is enabled
+        if i_read_en:
+            o_c.next = mac_result
+
+        elif not i_read_en:
+            o_c.next = 0
+
+        # Connect saturation detect to MAC overflow
+        o_saturate_detect.next = mac_overflow
 
     return instances()

@@ -12,7 +12,6 @@ def mac(clk, reset, a, b, enable, result, overflow):
     - reset: Active-high reset signal (clears accumulator)
     - a, b: Input operands for multiplication
     - enable: Enable signal for accumulation
-    - clear: Signal to clear the accumulator without reset
     - result: Output result (accumulated value)
     - overflow: Overflow flag
     """
