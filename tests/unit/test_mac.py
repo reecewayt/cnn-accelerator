@@ -1,98 +1,154 @@
+import unittest
+
 from myhdl import *
-import random
 import sys
 import os
+import math
 
 # Add the src directory to the path so we can import our module
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 from src.hdl.components.mac import mac
+from tests.utils.hdl_test_utils import simulate_with_vcd
 
 
-@block
-def mac_tb():
-    # Define signals with appropriate bit widths
-    clk = Signal(bool(0))
-    reset = ResetSignal(1, active=1, isasync=False)  # Use ResetSignal
-    a = Signal(intbv(0, min=-128, max=127))  # 8-bit signed
-    b = Signal(intbv(0, min=-128, max=127))  # 8-bit signed
-    enable = Signal(bool(0))  # Enable signal (replaces clear)
-    result = Signal(
-        intbv(0, min=-(2**16), max=2**16 - 1)
-    )  # 16-bit for accumulated results
+class TestMacUnit(unittest.TestCase):
+    """Test case for the MAC (Multiply-Accumulate) unit with VCD tracing."""
 
-    # Instantiate the MAC with new interface
-    dut = mac(clk, reset, a, b, enable, result)
+    def testBasicFunction(self):
+        """Test basic MAC functionality with simple values."""
+        # Define test parameters
+        a_width = 8
+        b_width = 8
+        result_width = 32
 
-    # Clock generator
-    @always(delay(10))
-    def clkgen():
-        clk.next = not clk
+        # Create signals
+        clk = Signal(bool(0))
+        reset = ResetSignal(0, active=1, isasync=False)
+        a = Signal(intbv(0)[a_width:])
+        b = Signal(intbv(0)[b_width:])
+        enable = Signal(bool(0))
+        result = Signal(
+            intbv(0, min=-(2 ** (result_width - 1)), max=2 ** (result_width - 1))
+        )
+        overflow = Signal(bool(0))
 
-    # Stimulus and checking
-    @instance
-    def stimulus():
-        # Initialize and reset
-        reset.next = 1
-        yield clk.posedge
-        reset.next = 0
+        # Define the DUT creation function with a clear name
+        def create_mac():
+            return mac(clk, reset, a, b, enable, result, overflow)
 
-        # Test case 1: Basic accumulation with enable=1
-        enable.next = 1  # Enable accumulation
-        for i in range(5):
-            a.next = i
-            b.next = 2
-            yield clk.posedge
-            print(f"a={int(a)}, b={int(b)}, enable={int(enable)}, result={int(result)}")
+        # Define generator function for test sequence
+        @instance
+        def test_sequence():
+            # Initialize inputs
+            a.next = 0
+            b.next = 0
+            enable.next = 0
+            yield delay(10)
 
-        # Test case 2: Pause accumulation (enable=0)
-        enable.next = 0
-        for i in range(2):
-            a.next = 100  # Should not affect accumulation when enable=0
-            b.next = 100
-            yield clk.posedge
-            print(f"a={int(a)}, b={int(b)}, enable={int(enable)}, result={int(result)}")
-
-        # Test case 3: More accumulation after pause
-        enable.next = 1
-        for i in range(3):
-            a.next = i + 10
+            # Test 1: Basic multiplication and accumulation
+            a.next = 2
             b.next = 3
-            yield clk.posedge
-            print(f"a={int(a)}, b={int(b)}, enable={int(enable)}, result={int(result)}")
+            enable.next = 1
 
-        # Test case 4: Reset during operation
-        reset.next = 1
-        yield clk.posedge
-        reset.next = 0
+            # Clock edge
+            yield delay(5)
+            clk.next = 1
+            yield delay(5)
+            clk.next = 0
 
-        # Test case 5: Accumulation after reset
-        enable.next = 1
-        for i in range(2):
-            a.next = i + 20
-            b.next = 4
-            yield clk.posedge
-            print(f"a={int(a)}, b={int(b)}, enable={int(enable)}, result={int(result)}")
+            # Verify: 2 * 3 = 6 accumulated
+            assert result == 6, f"Expected 6, got {result}"
+            assert overflow == 0, f"Expected overflow=0, got {overflow}"
 
-        # End simulation
-        raise StopSimulation
+            # Test 2: Accumulate more values
+            a.next = 4
+            b.next = 5
 
-    return dut, clkgen, stimulus
+            yield delay(5)
+            clk.next = 1
+            yield delay(5)
+            clk.next = 0
+
+            # Verify: 6 + (4 * 5) = 26 accumulated
+            assert result == 26, f"Expected 26, got {result}"
+
+            # Test reset
+            reset.next = 1
+            yield delay(5)
+            clk.next = 1
+            yield delay(5)
+            clk.next = 0
+
+            # Verify reset
+            assert result == 0, f"Expected 0 after reset, got {result}"
+
+        # Run simulation with VCD generation
+        simulate_with_vcd(create_mac, lambda: test_sequence)
+
+    def testOverflow(self):
+        """Test overflow detection in the MAC unit."""
+        # Define test parameters
+        a_width = 8
+        b_width = 8
+        result_width = 16  # Smaller result to trigger overflow
+
+        # Create signals
+        clk = Signal(bool(0))
+        reset = ResetSignal(0, active=1, isasync=False)
+        a = Signal(intbv(0)[a_width:])
+        b = Signal(intbv(0)[b_width:])
+        enable = Signal(bool(0))
+        result = Signal(intbv(0)[result_width:])
+        overflow = Signal(bool(0))
+
+        # Define the DUT creation function with a clear name
+        def create_mac():
+            return mac(clk, reset, a, b, enable, result, overflow)
+
+        # Define generator function for test sequence
+        @instance
+        def test_sequence():
+            # Initialize with reset
+            val_a = 100  # constants
+            val_b = 100  # constants
+
+            reset.next = 1
+            yield delay(5)
+            clk.next = 1
+            yield delay(5)
+            clk.next = 0
+            reset.next = 0
+
+            # Set values close to overflow
+            a.next = val_a
+            b.next = val_b
+            enable.next = 1
+
+            # First accumulation
+            yield delay(5)
+            clk.next = 1
+            yield delay(5)
+            clk.next = 0
+
+            # Should be 10000
+            assert result == (val_a * val_b), f"Expected 10000, got {result}"
+            assert overflow == 0, f"Expected overflow=0, got {overflow}"
+
+            # Cycle until overflow should happen
+            num_cycles = math.ceil((2**16) // (val_a * val_b))
+            for _ in range(num_cycles):
+                yield delay(5)
+                clk.next = 1
+                yield delay(5)
+                clk.next = 0
+
+            # Should set overflow flag and saturate
+            assert overflow == 1, f"Expected overflow=1, got {overflow}"
+            assert result == (2**16) - 1, f"Expected 65535 (saturated), got {result}"
+
+        # Run simulation with VCD generation
+        simulate_with_vcd(create_mac, lambda: test_sequence)
 
 
-# This allows the file to be run directly
 if __name__ == "__main__":
-    # Create directory for output files
-    os.makedirs("build", exist_ok=True)
-
-    # Specify the VCD file path
-    vcd_path = os.path.join("build", "mac_tb.vcd")
-
-    # Run the simulation
-    tb = mac_tb()
-
-    # Set the traceSignals.name attribute to control VCD file name
-    traceSignals.directory = "build"
-    traceSignals.name = "mac_tb"
-
-    tb.config_sim(trace=True)
-    tb.run_sim()
+    unittest.main(verbosity=2)

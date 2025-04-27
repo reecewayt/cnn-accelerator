@@ -7,108 +7,60 @@ import sys
 import glob
 
 
-class HDLTestUtils(unittest.TestCase):
+def simulate_with_vcd(dut_function, test_function, dut_name=None, *args, **kwargs):
     """
-    Base test case class for MyHDL modules that provides common functionality
-    for simulation setup, VCD management, and signal monitoring.
+    Helper function to run a MyHDL simulation with VCD generation.
+    Places VCD files in the vcd directory with proper naming.
+
+    Args:
+        dut_function: Function that returns the device under test
+        test_function: Generator function for testing
+        dut_name: Optional name to use for the DUT in VCD filename (defaults to function name)
+        *args, **kwargs: Arguments to pass to dut_function
+
+    Returns:
+        The simulation results
     """
+    # Create directory for VCD files if it doesn't exist
+    os.makedirs("vcd", exist_ok=True)
 
-    # For debugging
-    DEBUG = False
+    # Get the calling test name
+    frame = inspect.currentframe().f_back
+    caller_function = frame.f_code.co_name
 
-    def setUp(self):
-        """Set up common signals and directories."""
-        # Common signals
-        self.clk = Signal(bool(0))
-        self.reset = ResetSignal(1, active=1, isasync=False)
+    # Use provided DUT name or function name
+    if dut_name is None:
+        dut_name = dut_function.__name__
+        # Remove 'create_' prefix if it exists
+        if dut_name.startswith("create_"):
+            dut_name = dut_name[7:]
 
-        # Create build directory if it doesn't exist
-        os.makedirs("build", exist_ok=True)
+    # Create VCD filename
+    vcd_name = f"{dut_name}_{caller_function}"
+    vcd_pattern = os.path.join("vcd", f"{vcd_name}*.vcd")
 
-    def simulate(self, test_bench, duration=1000, trace=True):
-        """
-        Run a simulation with test-specific VCD files.
+    # Clean up old VCD files with the same name
+    for old_file in glob.glob(vcd_pattern):
+        os.remove(old_file)
 
-        Args:
-            test_bench: MyHDL block function to simulate
-            duration: Simulation duration
-            trace: Whether to generate VCD trace files
+    # Create the traced DUT instance
+    dut_inst = dut_function(*args, **kwargs)
 
-        Returns:
-            The simulation instance
-        """
-        # Get the calling test method name for custom VCD filename
-        caller_frame = inspect.currentframe().f_back
-        caller_method = caller_frame.f_code.co_name
+    # Configure tracing
+    traceSignals.directory = "vcd"
+    traceSignals.filename = vcd_name
+    dut_traced = traceSignals(dut_inst)
 
-        if trace:
-            # Clean up old VCD files for this test
-            pattern = os.path.join("build", f"{caller_method}*.vcd")
-            for old_file in glob.glob(pattern):
-                os.remove(old_file)
+    # Get the test generator instance
+    test_inst = test_function()
 
-            # Configure tracing
-            traceSignals.directory = "build"
-            traceSignals.filename = caller_method
+    # Create and run simulation
+    sim = Simulation(dut_traced, test_inst)
+    sim.run(quiet=1)
 
-        # Run simulation
-        tb = test_bench()
-        tb.config_sim(trace=trace)
-        tb.run_sim(duration)
+    # Report VCD file creation
+    new_files = glob.glob(vcd_pattern)
+    if new_files:
+        print(f"\nCreated VCD file: {new_files[0]}")
 
-        if trace:
-            # Find the new VCD file
-            new_files = glob.glob(pattern)
-            if new_files:
-                print(f"\nCreated VCD file: {new_files[0]}")
-
-        return tb
-
-    def debug(self, message):
-        """
-        Print debug messages only when DEBUG is enabled.
-
-        Args:
-            message: Message to print when in debug mode
-        """
-        if self.__class__.DEBUG:
-            print(message)
-
-    def check_signal(self, signal, expected_value, error_msg=None):
-        """
-        Check if a signal has the expected value and generate a meaningful error message.
-
-        Args:
-            signal: MyHDL signal to check
-            expected_value: Expected value
-            error_msg: Optional custom error message prefix
-        """
-        if error_msg is None:
-            error_msg = f"Signal check failed"
-
-        signal_value = int(signal)
-        if isinstance(expected_value, int) and expected_value > 255:
-            # Use hex representation for large values
-            msg = (
-                f"{error_msg}: expected {hex(expected_value)}, got {hex(signal_value)}"
-            )
-        else:
-            msg = f"{error_msg}: expected {expected_value}, got {signal_value}"
-
-        self.assertEqual(signal_value, expected_value, msg)
-
-    @classmethod
-    def set_debug(cls, debug):
-        """
-        Set the debug mode for the test class.
-
-        Args:
-            debug: Boolean value to enable or disable debug mode
-        """
-        cls.DEBUG = debug
-
-    @classmethod
-    def tearDownClass(cls):
-        """Clean up after all tests in the class."""
-        # Additional cleanup could be added here if needed
-        pass
+    return sim

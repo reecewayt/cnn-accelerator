@@ -68,7 +68,9 @@ class TestPE(HDLTestUtils):
                 i_a.next = 3
                 i_b.next = 5
                 i_en.next = 1  # Enable PE
+                yield delay(2)
                 yield self.clk.posedge
+                i_en.next = 0  # Disable PE
                 self.debug(f"a_out = {o_a}, b_out = {o_b}, mac_out = {int(o_c)}")
 
                 # Keep enabled for another cycle to propagate
@@ -81,7 +83,10 @@ class TestPE(HDLTestUtils):
                 # Test case 2: Another multiplication to test accumulation
                 i_a.next = 2
                 i_b.next = 4
+                i_en.next = 1  # Enable PE again
+                yield delay(2)
                 yield self.clk.posedge
+                i_en.next = 0  # Disable PE
                 self.debug(f"a_out = {o_a}, b_out = {o_b}, mac_out = {int(o_c)}")
 
                 # Keep enabled for another cycle
@@ -95,13 +100,16 @@ class TestPE(HDLTestUtils):
                 i_read_result.next = 1
                 yield self.clk.posedge
                 self.debug(f"read_result = {i_read_result}, c_out = {int(o_c)}")
-
+                yield self.clk.posedge
                 # Check result - should be 3*5 + 2*4 = 15 + 8 = 23
                 self.check_signal(o_c, 23, "c_out after two multiplications")
 
                 # Run a few more cycles to flush the pipeline
                 i_en.next = 0  # Disable PE
                 yield self.clk.posedge
+                delay(2)
+                yield self.clk.posedge
+                delay(2)
                 yield self.clk.posedge
 
                 # End simulation
