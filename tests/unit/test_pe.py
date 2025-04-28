@@ -22,6 +22,7 @@ class TestPeUnit(unittest.TestCase):
             (9, 10, 90),  # 9 * 10 = 90
         ]
         ### Small for now
+        self.sim = None
         self.data_width = 8
         self.acc_width = 16
         self.clk = Signal(bool(0))
@@ -36,6 +37,11 @@ class TestPeUnit(unittest.TestCase):
         self.o_b = Signal(intbv(0)[self.data_width : 0])
         self.o_c = Signal(intbv(0)[self.acc_width : 0])  # Result
         self.o_saturate_detect = Signal(bool(0))
+
+    def tearDown(self):
+        if self.sim is not None:
+            self.sim.quit()
+        # Reset the simulation singleton to avoid interference with other tests
 
     # Dut creation
     def create_pe(self):
@@ -119,7 +125,67 @@ class TestPeUnit(unittest.TestCase):
                 self.o_c, expected_result, f"Expected {expected_result}, got {self.o_c}"
             )
 
-        test_runner(
+        self.sim = test_runner(
+            self.create_pe,
+            lambda: test_sequence,
+            clk=self.clk,
+            period=10,
+            dut_name="pe",
+            vcd_output=True,
+            duration=500,
+        )
+
+    def testOverflow(self):
+        """Test overflow detection in the PE."""
+        INPUT_MAX = 255
+
+        @instance
+        def test_sequence():
+            self.i_a.next = self.test_values[0][0]
+            self.i_b.next = self.test_values[0][1]
+            self.i_data_valid.next = True
+            self.i_read_en.next = False
+            self.reset.next = False
+            yield self.clk.posedge
+            yield self.clk.negedge
+            self.i_data_valid.next = False
+
+            self.i_read_en.next = True
+            yield delay(10)
+            self.assertEqual(
+                self.o_c,
+                self.test_values[0][2],
+                f"Expected {self.test_values[0][2]}, got {self.o_a}",
+            )
+            yield delay(10)
+            self.i_read_en.next = False
+            yield self.clk.posedge
+            # Cause overflow
+            self.i_a.next = INPUT_MAX
+            self.i_b.next = INPUT_MAX
+            self.i_data_valid.next = True
+            yield delay(30)
+            self.i_data_valid.next = False
+
+            self.assertEqual(
+                self.o_saturate_detect,
+                True,
+                f"Expected overflow detection to be True, got {self.o_saturate_detect}",
+            )
+
+            self.reset.next = True
+            yield self.clk.posedge
+            yield self.clk.negedge
+            self.reset.next = False
+            yield self.clk.posedge
+            yield self.clk.negedge
+            self.assertEqual(
+                self.o_saturate_detect,
+                False,
+                f"Expected overflow detection to be False, got {self.o_saturate_detect}",
+            )
+
+        self.sim = test_runner(
             self.create_pe,
             lambda: test_sequence,
             clk=self.clk,
