@@ -118,7 +118,7 @@ class TestProcessingArrayUnit(unittest.TestCase):
                 for j in range(self.cols):
                     # Extract result from flattened output
                     index = (i * self.cols + j) * self.acc_width
-                    result = self.o_c_matrix[index : index + self.acc_width]
+                    result = int(self.o_c_matrix[index + self.acc_width : index])
                     expected = self.expected_C[i][j]
 
                     # Print debug info

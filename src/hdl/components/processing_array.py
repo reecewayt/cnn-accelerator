@@ -54,39 +54,53 @@ def processing_array(
     c_outputs = [Signal(intbv(0)[acc_width:0]) for _ in range(rows * cols)]
     saturate_flags = [Signal(bool(0)) for _ in range(rows * cols)]
 
-    # Instantiate the processing element array
+    # Instantiate the processing element array - DON'T collect instances manually
     pe_instances = []
     for i in range(rows):
         for j in range(cols):
             # Calculate the index for the PE
             pe_idx = i * cols + j
 
-            # Use shadow signals for structural connections
-            pe_inst = pe(
-                clk=clk,
-                i_a=a_slices[i],  # Use shadow signal instead of slice
-                i_b=b_slices[j],  # Use shadow signal instead of slice
-                i_data_valid=i_data_valid,
-                i_read_en=i_read_en,
-                i_reset=i_reset,
-                o_c=c_outputs[pe_idx],
-                o_saturate_detect=saturate_flags[pe_idx],
-                data_width=data_width,
-                acc_width=acc_width,
+            # Just instantiate without collecting
+            pe_instances.append(
+                pe(
+                    clk=clk,
+                    i_a=a_slices[i],  # Use shadow signal instead of slice
+                    i_b=b_slices[j],  # Use shadow signal instead of slice
+                    i_data_valid=i_data_valid,
+                    i_read_en=i_read_en,
+                    i_reset=i_reset,
+                    o_c=c_outputs[pe_idx],
+                    o_saturate_detect=saturate_flags[pe_idx],
+                    data_width=data_width,
+                    acc_width=acc_width,
+                )
             )
-            pe_instances.append(pe_inst)
 
     # Output collection logic
+    @always_comb
+    def output_collection():
+        # Create a temporary value for the output
+        temp = intbv(0)[rows * cols * acc_width : 0]
 
-    # @always_comb
-    # def output_collection():
-    # Collect all PE outputs into the flattened output matrix
-    # if i_read_en:
-    #    o_c_matrix.next = c_outputs
-    #    o_saturate_detect.next = saturate_flags
+        # Collect all PE outputs into the flattened output matrix
+        for idx in range(rows * cols):
+            # Calculate bit positions
+            high = (idx + 1) * acc_width - 1
+            low = idx * acc_width
 
-    # else:
-    #    o_c_matrix.next = 0
+            # Copy each bit from the PE output to the temporary value
+            for bit in range(acc_width):
+                temp[low + bit] = c_outputs[idx][bit]
 
-    # return instances()
-    return pe_instances, shadow_slices
+        # Assign the complete value to the output signal
+        o_c_matrix.next = temp
+
+        # Collect overflow flags (any PE overflow)
+        o_saturate_detect.next = False
+        for idx in range(rows * cols):
+            if saturate_flags[idx]:
+                o_saturate_detect.next = True
+
+    # Use the inference-based return
+    return instances()
