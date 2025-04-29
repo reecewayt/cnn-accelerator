@@ -7,7 +7,8 @@ import math
 # Import your module and utilities
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 from src.hdl.components.mac import mac
-from tests.utils.hdl_test_utils import simulate_with_vcd
+
+# from tests.utils.hdl_test_utils import simulate_with_vcd
 from tests.utils.hdl_test_utils import test_runner
 
 
@@ -30,6 +31,13 @@ class TestMacUnit(unittest.TestCase):
         # These will be set in the test methods since result width varies
         self.result = None
         self.overflow = Signal(bool(0))
+        self.sim = None
+
+    def tearDown(self):
+        """Clean up after each test."""
+        if self.sim is not None:
+            self.sim.quit()
+        # Reset the simulation singleton to avoid interference with other tests
 
     def create_mac(self):
         """Helper to create MAC instance with current signals."""
@@ -93,8 +101,16 @@ class TestMacUnit(unittest.TestCase):
             # Verify reset
             assert self.result == 0, f"Expected 0 after reset, got {self.result}"
 
-        # Run simulation with VCD generation
-        simulate_with_vcd(self.create_mac, lambda: test_sequence, dut_name="mac")
+        # Run test with automatic clock generation
+        self.sim = test_runner(
+            self.create_mac,
+            lambda: test_sequence,
+            clk=self.clk,
+            period=10,
+            dut_name="mac",
+            vcd_output=True,
+            duration=500,
+        )
 
     def testOverflow(self):
         """Test overflow detection in the MAC unit."""
@@ -135,8 +151,16 @@ class TestMacUnit(unittest.TestCase):
                 self.result == (2**16) - 1
             ), f"Expected 65535 (saturated), got {self.result}"
 
-        # Run simulation with VCD generation
-        simulate_with_vcd(self.create_mac, lambda: test_sequence, dut_name="mac")
+        # Run test with automatic clock generation
+        self.sim = test_runner(
+            self.create_mac,
+            lambda: test_sequence,
+            clk=self.clk,
+            period=10,
+            dut_name="mac",
+            vcd_output=True,
+            duration=500,
+        )
 
     def testResetFunctionality(self):
         result_width = 32
@@ -174,7 +198,7 @@ class TestMacUnit(unittest.TestCase):
             )
 
         # Run test with automatic clock generation
-        test_runner(
+        self.sim = test_runner(
             self.create_mac,
             lambda: test_sequence,
             clk=self.clk,

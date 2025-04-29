@@ -33,8 +33,6 @@ class TestPeUnit(unittest.TestCase):
         self.i_data_valid = Signal(bool(0))
         self.i_read_en = Signal(bool(0))  # Read result signal
         # Outputs
-        self.o_a = Signal(intbv(0)[self.data_width : 0])
-        self.o_b = Signal(intbv(0)[self.data_width : 0])
         self.o_c = Signal(intbv(0)[self.acc_width : 0])  # Result
         self.o_saturate_detect = Signal(bool(0))
 
@@ -52,8 +50,6 @@ class TestPeUnit(unittest.TestCase):
             i_data_valid=self.i_data_valid,
             i_read_en=self.i_read_en,
             i_reset=self.reset,
-            o_a=self.o_a,
-            o_b=self.o_b,
             o_c=self.o_c,
             o_saturate_detect=self.o_saturate_detect,
             data_width=self.data_width,
@@ -79,16 +75,9 @@ class TestPeUnit(unittest.TestCase):
 
             self.i_read_en.next = True
             yield self.clk.posedge
-            self.assertEqual(
-                self.o_a,
-                self.test_values[0][0],
-                f"Expected {self.test_values[0][0]}, got {self.o_a}",
-            )
-            self.assertEqual(
-                self.o_b,
-                self.test_values[0][1],
-                f"Expected {self.test_values[0][1]}, got {self.o_b}",
-            )
+
+            # Since o_a and o_b are removed, we no longer test them
+            # Only check the output result
             self.assertEqual(
                 self.o_c,
                 self.test_values[0][2],
@@ -105,17 +94,8 @@ class TestPeUnit(unittest.TestCase):
                 yield self.clk.posedge
 
             self.i_data_valid.next = False
-            self.assertEqual(
-                self.o_a,
-                self.test_values[1][0],
-                f"Expected {self.test_values[1][0]}, got {self.o_a}",
-            )
-            self.assertEqual(
-                self.o_b,
-                self.test_values[1][1],
-                f"Expected {self.test_values[1][1]}, got {self.o_b}",
-            )
 
+            # Since we can't check o_a and o_b anymore, we can only check the calculation result
             expected_result = (self.test_values[1][2] * 5) + (
                 self.test_values[0][0] * self.test_values[0][1]
             )
@@ -155,7 +135,7 @@ class TestPeUnit(unittest.TestCase):
             self.assertEqual(
                 self.o_c,
                 self.test_values[0][2],
-                f"Expected {self.test_values[0][2]}, got {self.o_a}",
+                f"Expected {self.test_values[0][2]}, got {self.o_c}",
             )
             yield delay(10)
             self.i_read_en.next = False

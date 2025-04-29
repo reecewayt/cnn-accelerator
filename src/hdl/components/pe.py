@@ -16,8 +16,6 @@ def pe(
     i_read_en,
     i_reset,
     # Outputs
-    o_a,
-    o_b,
     o_c,
     o_saturate_detect,
     # Parameters
@@ -72,10 +70,6 @@ def pe(
 
     @always_comb
     def output_logic():
-        # Direct pass-through of input values
-        o_a.next = i_a
-        o_b.next = i_b
-
         # Output the MAC result when read is enabled
         if i_read_en:
             o_c.next = mac_result

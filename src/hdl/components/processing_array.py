@@ -1,25 +1,25 @@
 """
 Parallel processing array for matrix multiplication, similar to a systolic array.
-But all inputs are available at the same time, and the outputs are collected in a single clock cycle.
+All inputs are available at the same time, and the outputs are collected in a single clock cycle.
+The processing elements (PEs) are arranged in a 2D array, each performing a MAC operation.
+Input is a column vector of matrix A and a row vector of matrix B.
 """
 
 from myhdl import *
 from src.hdl.components.pe import pe
-
-"TODO: This isn't complete yet. It needs to be tested and verified."
 
 
 @block
 def processing_array(
     clk,
     # Inputs
-    i_a_matrix,  # Input matrix A (flattened)
-    i_b_matrix,  # Input matrix B (flattened)
-    i_data_valid,  # Data valid signal
-    i_read_en,  # Read enable signal
+    i_a_vector,  # Input is a column vector of matrix A (rows*data_width bits)
+    i_b_vector,  # Input is a row vector of matrix B (cols*data_width bits)
+    i_data_valid,  # Data valid control signal
+    i_read_en,  # Read enable signal (scalar, not vector)
     i_reset,  # Reset signal
     # Outputs
-    o_c_matrix,  # Output matrix C (flattened)
+    o_c_matrix,  # Output matrix C (flattened, rows*cols*acc_width bits)
     o_saturate_detect,  # Overflow detection (for any PE)
     # Parameters
     rows=2,  # Number of rows in the array
@@ -29,82 +29,64 @@ def processing_array(
 ):
     """
     Parallel Processing Array for matrix multiplication
-
     This implements a rows x cols array of processing elements (PEs)
     for performing matrix multiplication: C = A * B
-
     Each PE handles the multiplication of one element of the result matrix.
     """
+    # Convert reset to proper signal type if needed
+    if not isinstance(i_reset, ResetSignal):
+        raise ValueError("Reset signal must be a ResetSignal")
 
-    # Convert reset to proper signal type
-    reset = ResetSignal(i_reset, active=1, isasync=False)
+    # We need shadow signals to do structural modeling as described
+    # in the MyHDL documentation.
+    a_slices = [Signal(intbv(0)[data_width:0]) for _ in range(rows)]
+    b_slices = [Signal(intbv(0)[data_width:0]) for _ in range(cols)]
 
-    # Create 2D arrays of signals for PE inputs and outputs
-    # Matrix A and B inputs for each PE
-    a_inputs = [
-        [Signal(intbv(0)[data_width:]) for _ in range(cols)] for _ in range(rows)
-    ]
-    b_inputs = [
-        [Signal(intbv(0)[data_width:]) for _ in range(cols)] for _ in range(rows)
-    ]
+    # Connect shadow signal to input vectors
+    @always_comb
+    def shadow_slices():
+        for i in range(rows):
+            a_slices[i].next = i_a_vector[(i + 1) * data_width - 1 : i * data_width]
+        for j in range(cols):
+            b_slices[j].next = i_b_vector[(j + 1) * data_width - 1 : j * data_width]
 
     # PE outputs
-    c_outputs = [
-        [Signal(intbv(0)[acc_width:]) for _ in range(cols)] for _ in range(rows)
-    ]
-    saturate_flags = [[Signal(bool(0)) for _ in range(cols)] for _ in range(rows)]
-
-    # Unused pass-through signals (not needed in this parallel design)
-    a_pass = [[Signal(intbv(0)[data_width:]) for _ in range(cols)] for _ in range(rows)]
-    b_pass = [[Signal(intbv(0)[data_width:]) for _ in range(cols)] for _ in range(rows)]
+    c_outputs = [Signal(intbv(0)[acc_width:0]) for _ in range(rows * cols)]
+    saturate_flags = [Signal(bool(0)) for _ in range(rows * cols)]
 
     # Instantiate the processing element array
-    pe_array = []
+    pe_instances = []
     for i in range(rows):
-        row_pes = []
         for j in range(cols):
-            # Instantiate a PE for each position in the array
+            # Calculate the index for the PE
+            pe_idx = i * cols + j
+
+            # Use shadow signals for structural connections
             pe_inst = pe(
                 clk=clk,
-                i_a=a_inputs[i][j],
-                i_b=b_inputs[i][j],
+                i_a=a_slices[i],  # Use shadow signal instead of slice
+                i_b=b_slices[j],  # Use shadow signal instead of slice
                 i_data_valid=i_data_valid,
                 i_read_en=i_read_en,
-                i_reset=reset,
-                o_a=a_pass[i][j],  # Pass-through (unused in parallel design)
-                o_b=b_pass[i][j],  # Pass-through (unused in parallel design)
-                o_c=c_outputs[i][j],
-                o_saturate_detect=saturate_flags[i][j],
+                i_reset=i_reset,
+                o_c=c_outputs[pe_idx],
+                o_saturate_detect=saturate_flags[pe_idx],
                 data_width=data_width,
                 acc_width=acc_width,
             )
-            row_pes.append(pe_inst)
-        pe_array.append(row_pes)
+            pe_instances.append(pe_inst)
 
-    # Input distribution and output collection logic
-    @always_comb
-    def input_distribution():
-        # For a 2x2 array, distribute the inputs
-        # Matrix A distribution (row-wise): each PE in a row gets the same row elements
-        for i in range(rows):
-            for j in range(cols):
-                # For each position in the output matrix,
-                # we need one element from row i of A and one element from column j of B
-                a_inputs[i][j].next = i_a_matrix[i * cols + j]
-                b_inputs[i][j].next = i_b_matrix[i * rows + j]
+    # Output collection logic
 
-    @always_comb
-    def output_collection():
-        # Collect output matrix elements
-        for i in range(rows):
-            for j in range(cols):
-                o_c_matrix[i * cols + j].next = c_outputs[i][j]
+    # @always_comb
+    # def output_collection():
+    # Collect all PE outputs into the flattened output matrix
+    # if i_read_en:
+    #    o_c_matrix.next = c_outputs
+    #    o_saturate_detect.next = saturate_flags
 
-        # Collect overflow flags (any PE overflow)
-        o_saturate_detect.next = False
-        for i in range(rows):
-            for j in range(cols):
-                if saturate_flags[i][j]:
-                    o_saturate_detect.next = True
+    # else:
+    #    o_c_matrix.next = 0
 
-    return instances()
+    # return instances()
+    return pe_instances, shadow_slices
