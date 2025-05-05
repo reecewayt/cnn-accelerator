@@ -52,9 +52,10 @@ class TestProcessingArrayUnit(unittest.TestCase):
         self.a_vectors, self.b_vectors = extract_matrix_vectors(
             self.matrix_A, self.matrix_B, self.data_width
         )
-        print("Raw Vectors")
-        print(self.a_vectors)
-        print(self.b_vectors)
+
+    def tearDown(self):
+        if self.sim is not None:
+            self.sim.quit()
 
     def create_processing_array(self):
         """Helper to create the processing array instance."""
