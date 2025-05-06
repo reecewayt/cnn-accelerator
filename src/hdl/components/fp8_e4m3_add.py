@@ -7,13 +7,15 @@ from src.utils.fp_defs import E4M3Format
 
 
 @block
-def fp8_e4m3_add(input_a, input_b, output_z, clk, rst):
+def fp8_e4m3_add(input_a, input_b, output_z, start, done, clk, rst):
     """
-    E4M3 floating-point adder (combinational implementation)
+    E4M3 floating-point adder (implemented with state machine)
     Parameters:
     - input_a, input_b: Input E4M3 operands (8-bit each)
     - output_z: Output E4M3 sum (8-bit)
-    - clk, rst: Clock and reset signals (used only for registering output)
+    - start: Control signal to start computation (active high)
+    - done: Signal indicating computation is complete (active high)
+    - clk, rst: Clock and reset signals
     """
     # Constants from E4M3Format
     WIDTH = E4M3Format.WIDTH  # 8
@@ -21,255 +23,240 @@ def fp8_e4m3_add(input_a, input_b, output_z, clk, rst):
     MAN_BITS = E4M3Format.MAN_BITS  # 3
     EXP_BIAS = E4M3Format.EXP_BIAS  # 7
 
-    # Internal signals for combinational logic
-    result = Signal(intbv(0)[WIDTH:])
-
-    # Input signals breakdown
-    a_sign = Signal(bool(0))
-    a_exp = Signal(intbv(0)[EXP_BITS:])
-    a_man = Signal(intbv(0)[MAN_BITS:])
-
-    b_sign = Signal(bool(0))
-    b_exp = Signal(intbv(0)[EXP_BITS:])
-    b_man = Signal(intbv(0)[MAN_BITS:])
-
-    # Special case flags
-    a_is_zero = Signal(bool(0))
-    b_is_zero = Signal(bool(0))
-    a_is_inf = Signal(bool(0))
-    b_is_inf = Signal(bool(0))
-    a_is_nan = Signal(bool(0))
-    b_is_nan = Signal(bool(0))
-
-    # Calculation signals
-    a_man_ext = Signal(intbv(0)[MAN_BITS + 5 :])
-    b_man_ext = Signal(intbv(0)[MAN_BITS + 5 :])
-    larger_exp = Signal(intbv(0)[EXP_BITS:])
-    exp_diff = Signal(intbv(0)[EXP_BITS:])
-    aligned_a = Signal(intbv(0)[MAN_BITS + 5 :])
-    aligned_b = Signal(intbv(0)[MAN_BITS + 5 :])
-    add_result = Signal(intbv(0)[MAN_BITS + 6 :])
-    final_sign = Signal(bool(0))
-    final_exp = Signal(intbv(0)[EXP_BITS:])
-    final_man = Signal(intbv(0)[MAN_BITS:])
-
-    @always_comb
-    def extract_components():
-        # Extract components from inputs
-        a_sign.next = bool(input_a[WIDTH - 1])
-        a_exp.next = (input_a[WIDTH - 1 : MAN_BITS]) & ((1 << EXP_BITS) - 1)
-        a_man.next = input_a[MAN_BITS:] & ((1 << MAN_BITS) - 1)
-
-        b_sign.next = bool(input_b[WIDTH - 1])
-        b_exp.next = (input_b[WIDTH - 1 : MAN_BITS]) & ((1 << EXP_BITS) - 1)
-        b_man.next = input_b[MAN_BITS:] & ((1 << MAN_BITS) - 1)
-
-        # Check for special cases
-        a_is_zero.next = (a_exp == 0) and (a_man == 0)
-        b_is_zero.next = (b_exp == 0) and (b_man == 0)
-        a_is_inf.next = (a_exp == (1 << EXP_BITS) - 1) and (a_man == 0)
-        b_is_inf.next = (b_exp == (1 << EXP_BITS) - 1) and (b_man == 0)
-        a_is_nan.next = (a_exp == (1 << EXP_BITS) - 1) and (a_man != 0)
-        b_is_nan.next = (b_exp == (1 << EXP_BITS) - 1) and (b_man != 0)
-
-        # Extended mantissas with implicit bit
-        if a_exp == 0:  # Denormal
-            a_man_ext.next = a_man << 2
-        else:
-            a_man_ext.next = ((1 << MAN_BITS) | a_man) << 2
-
-        if b_exp == 0:  # Denormal
-            b_man_ext.next = b_man << 2
-        else:
-            b_man_ext.next = ((1 << MAN_BITS) | b_man) << 2
-
-    @always_comb
-    def align_mantissas():
-        # Find larger exponent
-        if a_exp >= b_exp:
-            larger_exp.next = a_exp
-            exp_diff.next = a_exp - b_exp
-
-            # Align b's mantissa
-            if b_exp == 0 and a_exp == 0:
-                aligned_a.next = a_man_ext
-                aligned_b.next = b_man_ext
-            elif exp_diff >= MAN_BITS + 5:
-                aligned_a.next = a_man_ext
-                aligned_b.next = 0
-            else:
-                aligned_a.next = a_man_ext
-                aligned_b.next = b_man_ext >> exp_diff
-        else:
-            larger_exp.next = b_exp
-            exp_diff.next = b_exp - a_exp
-
-            # Align a's mantissa
-            if exp_diff >= MAN_BITS + 5:
-                aligned_a.next = 0
-                aligned_b.next = b_man_ext
-            else:
-                aligned_a.next = a_man_ext >> exp_diff
-                aligned_b.next = b_man_ext
-
-    @always_comb
-    def add_mantissas():
-        # Add/subtract based on signs
-        if a_sign == b_sign:
-            add_result.next = aligned_a + aligned_b
-            final_sign.next = a_sign
-        else:
-            # Effective subtraction
-            if aligned_a >= aligned_b:
-                add_result.next = aligned_a - aligned_b
-                final_sign.next = a_sign
-            else:
-                add_result.next = aligned_b - aligned_a
-                final_sign.next = b_sign
-
-    @always_comb
-    def normalize_and_round():
-        # Initialize with default values
-        final_exp.next = larger_exp
-        final_man.next = 0
-
-        if add_result == 0:
-            # Result is zero
-            final_sign.next = 0  # +0 by convention
-            final_exp.next = 0
-            final_man.next = 0
-        elif add_result[MAN_BITS + 5]:
-            # Overflow in addition, shift right and increment exponent
-            if larger_exp >= (1 << EXP_BITS) - 2:
-                # Overflow to infinity
-                final_exp.next = (1 << EXP_BITS) - 1
-                final_man.next = 0
-            else:
-                final_exp.next = larger_exp + 1
-                # Round
-                guard = bool(add_result[2])
-                round_bit = bool(add_result[1])
-                sticky = bool(add_result[0])
-
-                temp_man = (add_result >> 3) & ((1 << MAN_BITS) - 1)
-                if round_bit and (sticky or guard):
-                    if temp_man == (1 << MAN_BITS) - 1:
-                        temp_man = 0
-                        final_exp.next = final_exp + 1
-                        if final_exp == (1 << EXP_BITS) - 1:
-                            # Overflow to infinity
-                            final_man.next = 0
-                        else:
-                            final_man.next = temp_man
-                    else:
-                        final_man.next = temp_man + 1
-                else:
-                    final_man.next = temp_man
-        else:
-            # Find position of leading 1
-            lead_pos = MAN_BITS + 4
-            while lead_pos >= 0 and not add_result[lead_pos]:
-                lead_pos = lead_pos - 1
-
-            if lead_pos < 0:
-                # Result is zero (shouldn't happen if we checked earlier)
-                final_exp.next = 0
-                final_man.next = 0
-            else:
-                # Calculate normalization shift
-                shift_left = (MAN_BITS + 4) - lead_pos
-
-                if larger_exp <= shift_left:
-                    # Result will be denormalized or zero
-                    if larger_exp == 0:
-                        # Already at minimum exponent
-                        final_exp.next = 0
-                        final_man.next = (add_result >> 2) & ((1 << MAN_BITS) - 1)
-                    else:
-                        # Shift as much as possible
-                        final_exp.next = 0
-                        shift_amount = larger_exp
-                        shifted = add_result << shift_amount
-                        final_man.next = (shifted >> 2) & ((1 << MAN_BITS) - 1)
-                else:
-                    # Normal case - can fully normalize
-                    final_exp.next = larger_exp - shift_left
-                    shifted = add_result << shift_left
-
-                    # Round
-                    guard = bool(shifted[2])
-                    round_bit = bool(shifted[1])
-                    sticky = bool(shifted[0])
-
-                    temp_man = (shifted >> 2) & ((1 << MAN_BITS) - 1)
-                    if round_bit and (sticky or guard):
-                        if (
-                            temp_man == (1 << MAN_BITS) - 1
-                            and final_exp == (1 << EXP_BITS) - 2
-                        ):
-                            # Round up would overflow to infinity
-                            final_exp.next = (1 << EXP_BITS) - 1
-                            final_man.next = 0
-                        elif temp_man == (1 << MAN_BITS) - 1:
-                            # Round up carries to exponent
-                            final_man.next = 0
-                            final_exp.next = final_exp + 1
-                        else:
-                            final_man.next = temp_man + 1
-                    else:
-                        final_man.next = temp_man
-
-    @always_comb
-    def handle_special_cases():
-        if a_is_nan or b_is_nan or (a_is_inf and b_is_inf and a_sign != b_sign):
-            # NaN cases
-            result.next = (
-                (1 << (WIDTH - 1))
-                | ((1 << EXP_BITS) - 1) << MAN_BITS
-                | (1 << (MAN_BITS - 1))
-            )
-        elif a_is_inf:
-            # Infinity + anything = infinity with a's sign
-            result.next = (a_sign << (WIDTH - 1)) | ((1 << EXP_BITS) - 1) << MAN_BITS
-        elif b_is_inf:
-            # Anything + infinity = infinity with b's sign
-            result.next = (b_sign << (WIDTH - 1)) | ((1 << EXP_BITS) - 1) << MAN_BITS
-        elif a_is_zero and b_is_zero:
-            # Special case for zero + zero
-            if a_sign and b_sign:
-                # -0 + -0 = -0
-                result.next = 1 << (WIDTH - 1)
-            else:
-                # Other zero combinations = +0
-                result.next = 0
-        elif a_is_zero:
-            # 0 + b = b
-            result.next = input_b
-        elif b_is_zero:
-            # a + 0 = a
-            result.next = input_a
-        elif add_result == 0:
-            # Result is exactly zero
-            result.next = 0  # +0 by convention
-        else:
-            # Normal or denormal result
-            result.next = (
-                (final_sign << (WIDTH - 1)) | (final_exp << MAN_BITS) | final_man
-            )
-
-    # Register the output
-    @always(clk.posedge)
-    def reg_output():
-        if rst:
-            output_z.next = 0
-        else:
-            output_z.next = result
-
-    return (
-        extract_components,
-        align_mantissas,
-        add_mantissas,
-        normalize_and_round,
-        handle_special_cases,
-        reg_output,
+    # State definitions
+    t_State = enum(
+        "IDLE",
+        "UNPACK",
+        "SPECIAL_CASES",
+        "ALIGN",
+        "ADD_0",
+        "ADD_1",
+        "NORMALISE_1",
+        "NORMALISE_2",
+        "ROUND",
+        "PACK",
+        "PUT_Z",
     )
+    state = Signal(t_State.IDLE)
+
+    # Internal registers
+    a = Signal(intbv(0)[WIDTH:])
+    b = Signal(intbv(0)[WIDTH:])
+    z = Signal(intbv(0)[WIDTH:])
+
+    # Unpacked fields
+    a_s = Signal(bool(0))  # sign bit
+    b_s = Signal(bool(0))
+    z_s = Signal(bool(0))
+
+    # Change these lines
+    a_e = Signal(intbv(0, min=-(2 ** (EXP_BITS)), max=2 ** (EXP_BITS)))
+    b_e = Signal(intbv(0, min=-(2 ** (EXP_BITS)), max=2 ** (EXP_BITS)))
+    z_e = Signal(intbv(0, min=-(2 ** (EXP_BITS)), max=2 ** (EXP_BITS)))
+
+    a_m = Signal(intbv(0)[MAN_BITS + 2 :])  # mantissa (+2 bits for guard/round)
+    b_m = Signal(intbv(0)[MAN_BITS + 2 :])
+    z_m = Signal(intbv(0)[MAN_BITS + 1 :])
+
+    # Rounding bits
+    guard = Signal(bool(0))
+    round_bit = Signal(bool(0))
+    sticky = Signal(bool(0))
+
+    # Addition result
+    sum_val = Signal(intbv(0)[MAN_BITS + 3 :])  # Extra bit for potential overflow
+
+    # Output register
+    s_output_z = Signal(intbv(0)[WIDTH:])
+    s_done = Signal(bool(0))
+
+    @always_seq(clk.posedge, reset=rst)
+    def state_machine():
+        if rst:
+            state.next = t_State.IDLE
+            s_done.next = 0
+        else:
+            if state == t_State.IDLE:
+                s_done.next = 0
+                if start:
+                    a.next = input_a
+                    b.next = input_b
+                    state.next = t_State.UNPACK
+
+            elif state == t_State.UNPACK:
+                # Extract components
+                a_s.next = bool(a[WIDTH - 1])
+                a_e.next = a[WIDTH - 1 : MAN_BITS] - EXP_BIAS
+                a_m.next = intbv(0)[MAN_BITS + 2 :]
+
+                b_s.next = bool(b[WIDTH - 1])
+                b_e.next = b[WIDTH - 1 : MAN_BITS] - EXP_BIAS
+                b_m.next = intbv(0)[MAN_BITS + 2 :]
+
+                # Handle normal numbers with implicit bit
+                if a[WIDTH - 1 : MAN_BITS] != 0:  # If exponent not zero
+                    a_m.next = concat(intbv(1)[1:], a[MAN_BITS:], intbv(0)[1:])
+                else:
+                    # Denormal handling
+                    a_m.next = concat(intbv(0)[1:], a[MAN_BITS:], intbv(0)[1:])
+                    a_e.next = -EXP_BIAS + 1
+
+                if b[WIDTH - 1 : MAN_BITS] != 0:
+                    b_m.next = concat(intbv(1)[1:], b[MAN_BITS:], intbv(0)[1:])
+                else:
+                    # Denormal handling
+                    b_m.next = concat(intbv(0)[1:], b[MAN_BITS:], intbv(0)[1:])
+                    b_e.next = -EXP_BIAS + 1
+
+                state.next = t_State.SPECIAL_CASES
+
+            elif state == t_State.SPECIAL_CASES:
+                # Check for NaN (in E4M3: exp=max and mantissa!=0)
+                if (
+                    a[WIDTH - 1 : MAN_BITS] == (1 << EXP_BITS) - 1 and a[MAN_BITS:] != 0
+                ) or (
+                    b[WIDTH - 1 : MAN_BITS] == (1 << EXP_BITS) - 1 and b[MAN_BITS:] != 0
+                ):
+                    # Use max negative value for NaN in E4M3
+                    z.next = (
+                        (1 << (WIDTH - 1))
+                        | ((1 << EXP_BITS) - 1) << MAN_BITS
+                        | ((1 << MAN_BITS) - 1)
+                    )
+                    state.next = t_State.PUT_Z
+
+                # If a is zero, return b
+                elif a[WIDTH - 1 : MAN_BITS] == 0 and a[MAN_BITS:] == 0:
+                    if b[WIDTH - 1 : MAN_BITS] == 0 and b[MAN_BITS:] == 0:
+                        # Both zeros - return signed zero (negative if both negative)
+                        z.next = (a_s & b_s) << (WIDTH - 1)
+                    else:
+                        z.next = b
+                    state.next = t_State.PUT_Z
+
+                # If b is zero, return a
+                elif b[WIDTH - 1 : MAN_BITS] == 0 and b[MAN_BITS:] == 0:
+                    z.next = a
+                    state.next = t_State.PUT_Z
+
+                else:
+                    state.next = t_State.ALIGN
+
+            elif state == t_State.ALIGN:
+                # This step will repeatedly shift the smaller exponent until they are equal
+                if a_e > b_e:
+                    b_e.next = b_e + 1
+                    # Shift with sticky bit
+                    b_m.next = b_m >> 1
+                    if b_m[0]:  # Save shifted-out bit for better rounding
+                        b_m.next[0] = 1
+
+                elif a_e < b_e:
+                    a_e.next = a_e + 1
+                    # Shift with sticky bit
+                    a_m.next = a_m >> 1
+                    if a_m[0]:  # Save shifted-out bit for better rounding
+                        a_m.next[0] = 1
+
+                else:
+                    state.next = t_State.ADD_0
+
+            elif state == t_State.ADD_0:
+                z_e.next = a_e
+
+                if a_s == b_s:
+                    # Same sign - add mantissas
+                    sum_val.next = a_m + b_m
+                    z_s.next = a_s
+                else:
+                    # Different signs - subtract the smaller from the larger
+                    if a_m >= b_m:
+                        sum_val.next = a_m - b_m
+                        z_s.next = a_s
+                    else:
+                        sum_val.next = b_m - a_m
+                        z_s.next = b_s
+
+                state.next = t_State.ADD_1
+
+            elif state == t_State.ADD_1:
+                if sum_val[MAN_BITS + 2]:  # If overflow bit is set
+                    z_m.next = sum_val[MAN_BITS + 3 : 2]
+                    guard.next = bool(sum_val[1])
+                    round_bit.next = bool(sum_val[0])
+                    sticky.next = False
+                    z_e.next = z_e + 1
+                else:
+                    z_m.next = sum_val[MAN_BITS + 2 : 1]
+                    guard.next = bool(sum_val[0])
+                    round_bit.next = False
+                    sticky.next = False
+
+                state.next = t_State.NORMALISE_1
+
+            elif state == t_State.NORMALISE_1:
+                # Left normalization (for subnormal results)
+                if z_m[MAN_BITS] == 0 and z_e > -EXP_BIAS + 1:
+                    z_e.next = z_e - 1
+                    z_m.next = z_m << 1
+                    z_m.next[0] = guard
+                    guard.next = round_bit
+                    round_bit.next = False
+                else:
+                    state.next = t_State.NORMALISE_2
+
+            elif state == t_State.NORMALISE_2:
+                # Right normalization (for potential underflow)
+                if z_e < -EXP_BIAS + 1:
+                    z_e.next = z_e + 1
+                    # Shift with sticky bit update
+                    guard.next = z_m[0]
+                    z_m.next = z_m >> 1
+                    round_bit.next = guard
+                    sticky.next = sticky | round_bit
+                else:
+                    state.next = t_State.ROUND
+
+            elif state == t_State.ROUND:
+                # Round to nearest even
+                if guard and (round_bit or sticky or z_m[0]):
+                    z_m.next = z_m + 1
+                    if z_m == (1 << MAN_BITS) - 1:
+                        z_e.next = z_e + 1
+
+                state.next = t_State.PACK
+
+            elif state == t_State.PACK:
+                # Default packing
+                z.next[MAN_BITS:] = z_m[MAN_BITS:0]
+                z.next[WIDTH - 1 : MAN_BITS] = z_e + EXP_BIAS
+                z.next[WIDTH - 1] = z_s
+
+                # Handle denormal results
+                if z_e == -EXP_BIAS + 1 and z_m[MAN_BITS] == 0:
+                    z.next[WIDTH - 1 : MAN_BITS] = 0
+
+                # Fix sign for zero result
+                if z_e <= -EXP_BIAS + 1 and z_m == 0:
+                    z.next[WIDTH - 1] = 0  # +0 for zero result
+
+                # Handle overflow - clamp to max value
+                if z_e >= EXP_BIAS:
+                    z.next[WIDTH - 1 : MAN_BITS] = (1 << EXP_BITS) - 1
+                    z.next[MAN_BITS:] = (1 << MAN_BITS) - 1
+                    # Keep the sign bit
+
+                state.next = t_State.PUT_Z
+
+            elif state == t_State.PUT_Z:
+                s_output_z.next = z
+                s_done.next = 1
+                state.next = t_State.IDLE
+
+    @always_comb
+    def output_logic():
+        # Connect internal signals to outputs
+        output_z.next = s_output_z
+        done.next = s_done
+
+    return instances()
