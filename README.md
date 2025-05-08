@@ -127,7 +127,7 @@ Normalization is the process of representing a number so that the mantissa has a
 
 For example:
 - If exponent is `0001` the smallest possible number is $\pm 1.000*2^{-6} = \pm 0.015625$
-- If exponent is `0000` we treat it as denormalized and smallest possible value is $\pm 0.001*2^{-6} = \pm 0.0002441...$ this is because there is not implicit one for this special case.
+- If exponent is `0000` we treat it as denormalized and smallest possible value is $\pm 0.001*2^{-6} = 2^{-3}*2^{-6} = \pm 0.001953...$ this is because there is not implicit one for this special case.
 
 In conclusion, normalization helps with the following:
 
