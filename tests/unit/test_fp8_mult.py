@@ -165,7 +165,7 @@ class TestFP8E4M3Multiply(unittest.TestCase):
             yield from self.run_multiplication_test(
                 max_finite,
                 min_positive,
-                0x01,
+                0x36,
                 "Max finite * Min positive",
                 compare_bits=False,
             )
@@ -206,13 +206,13 @@ class TestFP8E4M3Multiply(unittest.TestCase):
             # Test case 8: Exact boundary value where result needs to be normalized
             # 0.5 * 0.5 = 0.25 (requires normalization)
             yield from self.run_multiplication_test(
-                0x30, 0x30, 0x20, "Normalization boundary"
+                0x30, 0x30, 0x28, "Normalization boundary"
             )
 
             # Test case 9: Rounding case
             # A case where rounding should occur
             # 3.0 * 1.5 = 4.5, which should round correctly
-            yield from self.run_multiplication_test(0x44, 0x3C, 0x48, "Rounding case")
+            yield from self.run_multiplication_test(0x44, 0x3C, 0x49, "Rounding case")
 
             # Test case 10: NaN handling
             # Any operation with NaN should result in NaN
