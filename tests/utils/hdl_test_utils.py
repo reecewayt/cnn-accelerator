@@ -11,6 +11,7 @@ def test_runner(
     period=10,
     dut_name=None,
     vcd_output=True,
+    verilog_output=False,
     duration=None,
     *args,
     **kwargs,
@@ -36,6 +37,28 @@ def test_runner(
 
     # Create the DUT instance
     dut_inst = dut_function(*args, **kwargs)
+
+    if verilog_output:
+        # Get the calling test name
+        frame = inspect.currentframe().f_back
+
+        # Use provided DUT name or function name
+        if dut_name is None:
+            dut_name = dut_function.__name__
+            # Remove 'create_' prefix if it exists
+            if dut_name.startswith("create_"):
+                dut_name = dut_name[7:]
+
+        # Create Verilog output directory
+        verilog_dir = os.path.join("gen", "verilog")
+        os.makedirs(verilog_dir, exist_ok=True)
+
+        try:
+            # Convert to Verilog
+            dut_inst.convert(hdl="Verilog", path=verilog_dir, name=dut_name)
+            print(f"\nGenerated Verilog: {verilog_dir}/{dut_name}.v")
+        except Exception as e:
+            print(f"Warning: Could not generate Verilog: {e}")
 
     # Handle VCD tracing if enabled
     if vcd_output:

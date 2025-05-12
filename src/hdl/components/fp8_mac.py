@@ -1,214 +1,184 @@
+from myhdl import *
+import sys
+import os
+
+from src.hdl.components.fp8_e4m3_mult import fp8_e4m3_multiply
+from src.hdl.components.fp8_e4m3_add import fp8_e4m3_add
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
+from src.utils.fp_defs import E4M3Format
+
+
 @block
-def fp8_mac(clk, reset, a, b, enable, result, overflow):
+def fp8_e4m3_mac(
+    clk,
+    rst,
+    input_a,
+    input_b,
+    mac_start,
+    clear_acc,
+    read_enable,
+    output_result,
+    mac_done,
+    ready_for_new,
+):
     """
-    An E4M3 floating-point multiply-accumulate (MAC) unit.
-
-    Parameters:
-    - clk: Clock signal
-    - reset: Active-high reset signal (clears accumulator)
-    - a, b: Input E4M3 operands (8-bit each)
-    - enable: Enable signal for accumulation
-    - result: Output E4M3 result (accumulated value)
-    - overflow: Overflow flag
+    Pipelined E4M3 floating-point MAC unit
     """
-    # Intermediate signals
-    product = Signal(intbv(0)[FP8_WIDTH:])
-    acc = Signal(intbv(0)[FP8_WIDTH:])  # Internal accumulator
+    WIDTH = E4M3Format.WIDTH  # 8
 
-    # For addition, we'll need to decompose again
-    acc_sign = Signal(bool(0))
-    acc_exp = Signal(intbv(0)[EXP_BITS:])
-    acc_man = Signal(intbv(0)[MAN_BITS:])
+    # Multiplier interface
+    mult_a = Signal(intbv(0)[WIDTH:])
+    mult_b = Signal(intbv(0)[WIDTH:])
+    mult_result = Signal(intbv(0)[WIDTH:])
+    mult_start = Signal(bool(0))
+    mult_done = Signal(bool(0))
 
-    prod_sign = Signal(bool(0))
-    prod_exp = Signal(intbv(0)[EXP_BITS:])
-    prod_man = Signal(intbv(0)[MAN_BITS:])
+    # Adder interface
+    add_a = Signal(intbv(0)[WIDTH:])
+    add_b = Signal(intbv(0)[WIDTH:])
+    add_result = Signal(intbv(0)[WIDTH:])
+    add_start = Signal(bool(0))
+    add_done = Signal(bool(0))
 
-    # Extended mantissas for alignment
-    acc_man_ext = Signal(intbv(0)[2 * MAN_BITS + EXP_BITS :])  # Extra bits for shifting
-    prod_man_ext = Signal(intbv(0)[2 * MAN_BITS + EXP_BITS :])
+    # Pipeline registers
+    accumulator = Signal(intbv(0)[WIDTH:])
+    mult_result_reg = Signal(intbv(0)[WIDTH:])
+    mult_pending = Signal(bool(0))
+    add_pending = Signal(bool(0))
 
-    # Aligned mantissas
-    aligned_acc = Signal(intbv(0)[2 * MAN_BITS + EXP_BITS + 1 :])  # +1 for sign
-    aligned_prod = Signal(intbv(0)[2 * MAN_BITS + EXP_BITS + 1 :])
+    # Output register - only updates when read_enable is active
+    output_reg = Signal(intbv(0)[WIDTH:])
 
-    # Sum result
-    sum_val = Signal(intbv(0)[2 * MAN_BITS + EXP_BITS + 2 :])  # +1 for potential carry
+    # State machines for multiply and accumulate pipelines
+    t_MultState = enum("IDLE", "MULTIPLY", "WAIT_DONE")
+    t_AccState = enum("IDLE", "ADD", "WAIT_ADD", "UPDATE")
 
-    # Final normalized result components
-    final_sign = Signal(bool(0))
-    final_exp = Signal(intbv(0)[EXP_BITS:])
-    final_man = Signal(intbv(0)[MAN_BITS:])
+    mult_state = Signal(t_MultState.IDLE)
+    acc_state = Signal(t_AccState.IDLE)
 
-    # Special case flags
-    acc_is_zero = Signal(bool(0))
-    prod_is_zero = Signal(bool(0))
-    acc_is_nan = Signal(bool(0))
-    prod_is_nan = Signal(bool(0))
-    result_is_nan = Signal(bool(0))
+    # Status signals
+    s_mac_done = Signal(bool(0))
+    s_ready_for_new = Signal(bool(0))
 
-    # Instantiate the multiplier
-    fp8_mult = fp8_multiply(a, b, product)
+    # Instantiate multiplier
+    multiplier = fp8_e4m3_multiply(
+        input_a=mult_a,
+        input_b=mult_b,
+        output_z=mult_result,
+        start=mult_start,
+        done=mult_done,
+        clk=clk,
+        rst=rst,
+    )
 
-    @always_comb
-    def decompose_acc_product():
-        # Extract components from accumulator
-        acc_sign.next = acc[FP8_WIDTH - 1 :] == 1
-        acc_exp.next = acc[FP8_WIDTH - 1 : FP8_WIDTH - 1 - EXP_BITS]
-        acc_man.next = acc[FP8_WIDTH - 1 - EXP_BITS :]
+    # Instantiate adder
+    adder = fp8_e4m3_add(
+        input_a=add_a,
+        input_b=add_b,
+        output_z=add_result,
+        start=add_start,
+        done=add_done,
+        clk=clk,
+        rst=rst,
+    )
 
-        # Extract components from product
-        prod_sign.next = product[FP8_WIDTH - 1 :] == 1
-        prod_exp.next = product[FP8_WIDTH - 1 : FP8_WIDTH - 1 - EXP_BITS]
-        prod_man.next = product[FP8_WIDTH - 1 - EXP_BITS :]
-
-        # Check for special cases
-        acc_is_zero.next = (acc_exp == 0) and (acc_man == 0)
-        prod_is_zero.next = (prod_exp == 0) and (prod_man == 0)
-        acc_is_nan.next = (acc_exp == 2**EXP_BITS - 1) and (acc_man != 0)
-        prod_is_nan.next = (prod_exp == 2**EXP_BITS - 1) and (prod_man != 0)
-
-        # Extended mantissas with implied '1'
-        if acc_exp == 0:  # Subnormal or zero
-            acc_man_ext.next = acc_man
+    # Multiply pipeline state machine
+    @always_seq(clk.posedge, reset=rst)
+    def multiply_pipeline():
+        if rst:
+            mult_state.next = t_MultState.IDLE
         else:
-            acc_man_ext.next = (1 << MAN_BITS) | acc_man
+            if mult_state == t_MultState.IDLE:
+                if mac_start:
+                    mult_a.next = input_a
+                    mult_b.next = input_b
+                    mult_state.next = t_MultState.MULTIPLY
 
-        if prod_exp == 0:  # Subnormal or zero
-            prod_man_ext.next = prod_man
+            elif mult_state == t_MultState.MULTIPLY:
+                mult_start.next = 1
+                mult_state.next = t_MultState.WAIT_DONE
+
+            elif mult_state == t_MultState.WAIT_DONE:
+                mult_start.next = 0
+                if mult_done:
+                    mult_result_reg.next = mult_result
+                    mult_state.next = t_MultState.IDLE
+
+    # Accumulate pipeline state machine
+    @always_seq(clk.posedge, reset=rst)
+    def accumulate_pipeline():
+        if rst:
+            acc_state.next = t_AccState.IDLE
+            accumulator.next = 0
+            add_pending.next = 0
+            s_mac_done.next = 0
         else:
-            prod_man_ext.next = (1 << MAN_BITS) | prod_man
+            s_mac_done.next = 0  # Default to not done
 
-    @always_comb
-    def align_operands():
-        # Determine exponent difference
-        exp_diff = 0
+            if acc_state == t_AccState.IDLE:
+                if clear_acc:
+                    # Clear accumulator
+                    accumulator.next = 0
+                    add_pending.next = 0
+                elif mult_pending and not add_pending:
+                    # Start accumulation
+                    add_a.next = mult_result_reg
+                    add_b.next = accumulator
+                    add_pending.next = 1
+                    acc_state.next = t_AccState.ADD
 
-        if acc_is_zero:
-            aligned_acc.next = 0
-            aligned_prod.next = prod_man_ext << MAN_BITS
-        elif prod_is_zero:
-            aligned_acc.next = acc_man_ext << MAN_BITS
-            aligned_prod.next = 0
+            elif acc_state == t_AccState.ADD:
+                add_start.next = 1
+                acc_state.next = t_AccState.WAIT_ADD
+
+            elif acc_state == t_AccState.WAIT_ADD:
+                add_start.next = 0
+                if add_done:
+                    acc_state.next = t_AccState.UPDATE
+
+            elif acc_state == t_AccState.UPDATE:
+                accumulator.next = add_result
+                add_pending.next = 0
+                s_mac_done.next = 1  # Signal that this MAC operation completed
+                acc_state.next = t_AccState.IDLE
+
+    # Separate process for mult_pending to avoid multiple drivers
+    @always_seq(clk.posedge, reset=rst)
+    def mult_pending_control():
+        if rst:
+            mult_pending.next = 0
         else:
-            # Align mantissas based on exponent difference
-            if acc_exp > prod_exp:
-                exp_diff = acc_exp - prod_exp
-                if (
-                    exp_diff > 2 * MAN_BITS + EXP_BITS
-                ):  # If difference too large, smaller value is negligible
-                    aligned_acc.next = acc_man_ext << MAN_BITS
-                    aligned_prod.next = 0
-                else:
-                    aligned_acc.next = acc_man_ext << MAN_BITS
-                    aligned_prod.next = prod_man_ext >> exp_diff
-            else:
-                exp_diff = prod_exp - acc_exp
-                if (
-                    exp_diff > 2 * MAN_BITS + EXP_BITS
-                ):  # If difference too large, smaller value is negligible
-                    aligned_acc.next = 0
-                    aligned_prod.next = prod_man_ext << MAN_BITS
-                else:
-                    aligned_acc.next = acc_man_ext >> exp_diff
-                    aligned_prod.next = prod_man_ext << MAN_BITS
+            if mult_state == t_MultState.WAIT_DONE and mult_done:
+                # Set when multiplication completes
+                mult_pending.next = 1
+            elif acc_state == t_AccState.UPDATE:
+                # Clear when accumulation completes
+                mult_pending.next = 0
+            elif clear_acc:
+                # Also clear on accumulator clear
+                mult_pending.next = 0
 
-    @always_seq(clk.posedge, reset=reset)
-    def accumulate():
-        if reset:
-            acc.next = 0
-            overflow.next = False
-        elif enable:
-            # Handle special cases
-            if acc_is_nan or prod_is_nan:
-                acc.next = (
-                    (1 << (FP8_WIDTH - 1)) | ((2**EXP_BITS - 1) << MAN_BITS) | 1
-                )  # NaN
-                overflow.next = False
-            elif acc_is_zero:
-                acc.next = product
-                overflow.next = False
-            elif prod_is_zero:
-                # Keep accumulator unchanged
-                overflow.next = False
-            else:
-                # Determine common exponent
-                common_exp = max(acc_exp, prod_exp)
+    # Output register control
+    @always_seq(clk.posedge, reset=rst)
+    def output_control():
+        if rst:
+            output_reg.next = 0
+        else:
+            if read_enable:
+                # Update output register with current accumulator value
+                output_reg.next = accumulator
 
-                # Add or subtract aligned mantissas based on signs
-                if acc_sign == prod_sign:
-                    # Same sign - add
-                    sum_val.next = aligned_acc + aligned_prod
-                    final_sign.next = acc_sign
-                else:
-                    # Different signs - subtract
-                    if aligned_acc >= aligned_prod:
-                        sum_val.next = aligned_acc - aligned_prod
-                        final_sign.next = acc_sign
-                    else:
-                        sum_val.next = aligned_prod - aligned_acc
-                        final_sign.next = prod_sign
-
-                # Normalize result
-                leading_bit_pos = MAN_BITS * 2
-                # Find position of leading 1 (simplified)
-                # Real hardware would use a leading zero counter
-                tmp_sum = sum_val
-                if tmp_sum != 0:
-                    while (
-                        tmp_sum & (1 << leading_bit_pos)
-                    ) == 0 and leading_bit_pos > 0:
-                        leading_bit_pos -= 1
-
-                # Calculate exponent adjustment
-                exp_adj = leading_bit_pos - MAN_BITS
-
-                # Adjust exponent
-                adjusted_exp = common_exp - exp_adj
-
-                if sum_val == 0:
-                    # Result is zero
-                    acc.next = 0
-                    overflow.next = False
-                elif adjusted_exp >= 2**EXP_BITS - 1:
-                    # Overflow - clamp to max value
-                    acc.next = (
-                        (final_sign << (FP8_WIDTH - 1))
-                        | ((2**EXP_BITS - 2) << MAN_BITS)
-                        | (2**MAN_BITS - 1)
-                    )
-                    overflow.next = True
-                elif adjusted_exp <= 0:
-                    # Underflow - denormalize
-                    shift = 1 - adjusted_exp
-                    if shift > 2 * MAN_BITS:
-                        # Complete underflow
-                        acc.next = 0
-                    else:
-                        # Denormalized result
-                        denorm_man = sum_val >> shift
-                        if denorm_man < (1 << MAN_BITS):
-                            acc.next = (final_sign << (FP8_WIDTH - 1)) | denorm_man
-                        else:
-                            acc.next = (final_sign << (FP8_WIDTH - 1)) | (
-                                2**MAN_BITS - 1
-                            )
-                    overflow.next = False
-                else:
-                    # Normal case
-                    normalized_man = (sum_val << exp_adj) >> MAN_BITS
-                    final_man.next = normalized_man & (2**MAN_BITS - 1)
-                    final_exp.next = adjusted_exp
-                    acc.next = (
-                        (final_sign << (FP8_WIDTH - 1))
-                        | (final_exp << MAN_BITS)
-                        | final_man
-                    )
-                    overflow.next = False
-
-    # Connect internal accumulator to output
     @always_comb
     def output_logic():
-        result.next = acc
+        # Output is the registered value
+        output_result.next = output_reg
+        mac_done.next = s_mac_done
+
+        # Ready for new input when:
+        # 1. Multiplier is idle AND
+        # 2. No pending multiplication result waiting to be accumulated
+        s_ready_for_new.next = (mult_state == t_MultState.IDLE) and not mult_pending
+        ready_for_new.next = s_ready_for_new
 
     return instances()

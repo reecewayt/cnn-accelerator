@@ -55,6 +55,11 @@ def fp8_e4m3_multiply(input_a, input_b, output_z, start, done, clk, rst):
     a_man = Signal(intbv(0)[MAN_BITS + 1 :])
     b_man = Signal(intbv(0)[MAN_BITS + 1 :])
 
+    final_man = Signal(intbv(0)[MAN_BITS:])
+    shift_amount = Signal(intbv(0)[EXP_BITS + 1 :])
+    denorm_man = Signal(intbv(0)[MAN_BITS + 3 :])
+    biased_exp = Signal(intbv(0)[EXP_BITS:])
+
     # Product needs twice the width
     product = Signal(intbv(0)[2 * (MAN_BITS + 1) :])
 
@@ -207,24 +212,28 @@ def fp8_e4m3_multiply(input_a, input_b, output_z, start, done, clk, rst):
                     z.next = z_sign << (WIDTH - 1)
                 elif z_exp < -EXP_BIAS:
                     # Gradual underflow - denormalized result
-                    shift_amount = -EXP_BIAS - z_exp
-                    if shift_amount <= MAN_BITS:
+                    # Inline the shift amount calculation directly in the comparison
+                    if (-EXP_BIAS - z_exp) <= MAN_BITS:
                         # Shift mantissa right and set exponent to 0
-                        denorm_man = z_man >> shift_amount
-                        final_man = denorm_man[MAN_BITS:0]
-                        z.next = (z_sign << (WIDTH - 1)) | final_man
+                        z.next = (z_sign << (WIDTH - 1)) | (
+                            (z_man >> (-EXP_BIAS - z_exp))[MAN_BITS:0]
+                        )
                     else:
                         # Too much underflow - flush to zero
                         z.next = z_sign << (WIDTH - 1)
                 elif z_exp >= EXP_BIAS + 2:
                     # Overflow to max representable value (not NaN)
-                    z.next = (z_sign << (WIDTH - 1)) | ((1 << EXP_BIAS) - 2)
-                else:
-                    # Normal case
-                    final_man = z_man[MAN_BITS:0]
-                    biased_exp = z_exp + EXP_BIAS
                     z.next = (
-                        (z_sign << (WIDTH - 1)) | (biased_exp << MAN_BITS) | final_man
+                        (z_sign << (WIDTH - 1))
+                        | (((1 << EXP_BITS) - 1) << MAN_BITS)
+                        | ((1 << MAN_BITS) - 2)
+                    )
+                else:
+                    # Normal case - inline the biased exponent calculation
+                    z.next = (
+                        (z_sign << (WIDTH - 1))
+                        | ((z_exp + EXP_BIAS) << MAN_BITS)
+                        | z_man[MAN_BITS:0]
                     )
 
                 state.next = t_State.PUT_Z
