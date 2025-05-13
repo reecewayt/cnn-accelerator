@@ -199,6 +199,7 @@ class TestFP8ProcessingArray(unittest.TestCase):
             period=10,
             dut_name="fp8_processing_array",
             vcd_output=True,
+            verilog_output=True,
             duration=2000,
         )
 

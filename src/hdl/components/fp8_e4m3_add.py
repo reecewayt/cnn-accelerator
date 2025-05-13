@@ -83,8 +83,10 @@ def fp8_e4m3_add(input_a, input_b, output_z, start, done, clk, rst):
     # Exponent signals for handling special cases
     # Add this with your other signal definitions (before the state machine)
     exp_diff = Signal(intbv(0, min=-(2 ** (EXP_BITS + 1)), max=2 ** (EXP_BITS + 1)))
-    max_shifts = Signal(intbv(MAN_BITS + 2)[4:])  # 5 for E4M3 format, using 4 bits
+    # max_shifts = Signal(intbv(MAN_BITS + 2)[4:])  # 5 for E4M3 format, using 4 bits
 
+    # Constant
+    MAX_SHIFTS = MAN_BITS + 2  # Maximum shifts for alignment
     # Addition result
     sum_val = Signal(intbv(0)[MAN_BITS + 3 :])  # Extra bit for potential overflow
 
@@ -203,7 +205,7 @@ def fp8_e4m3_add(input_a, input_b, output_z, start, done, clk, rst):
             elif state == t_State.ALIGN:
                 # This step will repeatedly shift the smaller exponent until they are equal
                 if a_e > b_e:
-                    if exp_diff > max_shifts:
+                    if exp_diff > MAX_SHIFTS:
                         # For very large differences, the smaller operand is effectively zero
                         # Skip computation and just use the larger operand (a)
                         z.next = a
@@ -217,7 +219,7 @@ def fp8_e4m3_add(input_a, input_b, output_z, start, done, clk, rst):
                             b_m.next[0] = 1
                 elif a_e < b_e:
 
-                    if exp_diff > max_shifts:
+                    if exp_diff > MAX_SHIFTS:
                         # For very large differences, the smaller operand is effectively zero
                         # Skip computation and just use the larger operand (b)
                         z.next = b
