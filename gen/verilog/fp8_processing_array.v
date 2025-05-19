@@ -3,8 +3,6 @@
 // Date:    Tue May 13 17:25:26 2025 UTC
 
 
-`timescale 1ns/10ps
-
 module fp8_processing_array (
     clk,
     i_a_vector,
@@ -452,7 +450,9 @@ always @(posedge clk) begin: fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_state_mach
                     end
                     else if ((fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z_exp < (-7))) begin
                         if ((((-7) - fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z_exp) <= 3)) begin
-                            fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z <= (($signed({1'b0, fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z_sign}) << (8 - 1)) | $signed($signed({1'b0, fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z_man}) >>> ((-7) - fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z_exp))[3-1:0]);
+                            fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z <= (($signed({1'b0, fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z_sign}) << (8 - 1)) |
+                                                                        ($signed({1'b0, fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z_man}) >>>
+                                                                        ((-7) - fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z_exp)) & 7); // 7 = 0b111 = mask for [2:0]
                         end
                         else begin
                             fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z <= ($signed({1'b0, fp8_pe0_fp8_e4m3_mac0_fp8_e4m3_multiply0_z_sign}) << (8 - 1));
@@ -983,7 +983,9 @@ always @(posedge clk) begin: fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_state_mach
                     end
                     else if ((fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z_exp < (-7))) begin
                         if ((((-7) - fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z_exp) <= 3)) begin
-                            fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z <= (($signed({1'b0, fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z_sign}) << (8 - 1)) | $signed($signed({1'b0, fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z_man}) >>> ((-7) - fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z_exp))[3-1:0]);
+                            fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z <= (($signed({1'b0, fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z_sign}) << (8 - 1)) |
+                                                                            ($signed({1'b0, fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z_man}) >>>
+                                                                            ((-7) - fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z_exp)) & 7); // 7 = 0b111 = mask for [2:0]
                         end
                         else begin
                             fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z <= ($signed({1'b0, fp8_pe1_fp8_e4m3_mac1_fp8_e4m3_multiply1_z_sign}) << (8 - 1));
@@ -1514,7 +1516,9 @@ always @(posedge clk) begin: fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_state_mach
                     end
                     else if ((fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z_exp < (-7))) begin
                         if ((((-7) - fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z_exp) <= 3)) begin
-                            fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z <= (($signed({1'b0, fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z_sign}) << (8 - 1)) | $signed($signed({1'b0, fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z_man}) >>> ((-7) - fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z_exp))[3-1:0]);
+                            fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z <= (($signed({1'b0, fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z_sign}) << (8 - 1)) |
+                                                                            ($signed({1'b0, fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z_man}) >>>
+                                                                            ((-7) - fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z_exp)) & 7); // 7 = 0b111 = mask for [2:0]
                         end
                         else begin
                             fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z <= ($signed({1'b0, fp8_pe2_fp8_e4m3_mac2_fp8_e4m3_multiply2_z_sign}) << (8 - 1));
@@ -2045,7 +2049,9 @@ always @(posedge clk) begin: fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_state_mach
                     end
                     else if ((fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z_exp < (-7))) begin
                         if ((((-7) - fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z_exp) <= 3)) begin
-                            fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z <= (($signed({1'b0, fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z_sign}) << (8 - 1)) | $signed($signed({1'b0, fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z_man}) >>> ((-7) - fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z_exp))[3-1:0]);
+                            fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z <= (($signed({1'b0, fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z_sign}) << (8 - 1)) |
+                                                                            ($signed({1'b0, fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z_man}) >>>
+                                                                            ((-7) - fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z_exp)) & 7); // 7 = 0b111 = mask for [2:0]
                         end
                         else begin
                             fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z <= ($signed({1'b0, fp8_pe3_fp8_e4m3_mac3_fp8_e4m3_multiply3_z_sign}) << (8 - 1));

@@ -180,3 +180,6 @@ cython_debug/
 
 # Ignore vcd files
 *.vcd
+
+# Ignore OpenLane Runs Directory
+*runs/

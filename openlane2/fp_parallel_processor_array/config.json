@@ -1,0 +1,8 @@
+{
+    "DESIGN_NAME": "fp8_processing_array",
+    "VERILOG_FILES": [
+        "../../gen/verilog/fp8_processing_array.v"
+    ],
+    "CLOCK_PERIOD": 25,
+    "CLOCK_PORT": "clk"
+}
