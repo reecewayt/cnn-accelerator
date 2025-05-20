@@ -55,6 +55,11 @@ def fp8_e4m3_multiply(input_a, input_b, output_z, start, done, clk, rst):
     a_man = Signal(intbv(0)[MAN_BITS + 1 :])
     b_man = Signal(intbv(0)[MAN_BITS + 1 :])
 
+    # Temporary signals for bit manipulation
+    temp_shifted_man = Signal(intbv(0)[MAN_BITS + 3 :])
+    temp_mantissa_bits = Signal(intbv(0)[MAN_BITS:])
+
+    # Other internal signals
     final_man = Signal(intbv(0)[MAN_BITS:])
     shift_amount = Signal(intbv(0)[EXP_BITS + 1 :])
     denorm_man = Signal(intbv(0)[MAN_BITS + 3 :])
@@ -149,8 +154,6 @@ def fp8_e4m3_multiply(input_a, input_b, output_z, start, done, clk, rst):
                     state.next = t_State.MULTIPLY
 
             elif state == t_State.MULTIPLY:
-                # z_exp.next = a_exp + b_exp
-
                 # Multiply mantissas but first handle denorm numbers
                 if a_man[MAN_BITS] == 0 and a_man != 0:
                     # Denormalized number -> Shift left, and decrement exponent
@@ -214,10 +217,17 @@ def fp8_e4m3_multiply(input_a, input_b, output_z, start, done, clk, rst):
                     # Gradual underflow - denormalized result
                     # Inline the shift amount calculation directly in the comparison
                     if (-EXP_BIAS - z_exp) <= MAN_BITS:
-                        # Shift mantissa right and set exponent to 0
-                        z.next = (z_sign << (WIDTH - 1)) | (
-                            (z_man >> (-EXP_BIAS - z_exp))[MAN_BITS:0]
-                        )
+                        # Calculate the right shift amount
+                        shift_amount.next = -EXP_BIAS - z_exp
+
+                        # Create a temporary shifted value first
+                        temp_shifted_man.next = z_man >> (-EXP_BIAS - z_exp)
+
+                        # Extract the mantissa bits
+                        temp_mantissa_bits.next = temp_shifted_man[MAN_BITS:0]
+
+                        # Combine the sign and shifted mantissa
+                        z.next = (z_sign << (WIDTH - 1)) | temp_mantissa_bits
                     else:
                         # Too much underflow - flush to zero
                         z.next = z_sign << (WIDTH - 1)

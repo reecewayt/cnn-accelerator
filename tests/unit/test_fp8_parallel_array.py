@@ -88,9 +88,6 @@ class TestFP8ProcessingArray(unittest.TestCase):
             o_c_matrix=self.o_c_matrix,
             o_mac_done=self.o_mac_done,
             o_ready_for_new=self.o_ready_for_new,
-            rows=self.rows,
-            cols=self.cols,
-            data_width=self.data_width,
         )
 
     def testMatrixMultiplication(self):
