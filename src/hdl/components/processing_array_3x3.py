@@ -1,6 +1,5 @@
 """
-Refactored 3x3 Integer Processing Array for matrix multiplication
-Following exact signal slicing pattern from fp8_processing_array
+3x3 Integer Processing Array for matrix multiplication
 """
 
 from myhdl import *
@@ -24,7 +23,7 @@ def processing_array_3x3(
     3x3 Processing Array for matrix multiplication using validated processing elements.
 
     This array performs matrix multiplication by computing dot products in parallel.
-    Each PE accumulates partial results across multiple cycles.
+    Each PE accumulates partial results across multiple cycles. Results are output stationary.
 
     Parameters:
     - clk: Clock signal
@@ -45,13 +44,18 @@ def processing_array_3x3(
     ARRAY_SIZE = 3
     NUM_PES = 9
 
+    data_min = -(2 ** (DATA_WIDTH - 1))
+    data_max = 2 ** (DATA_WIDTH - 1) - 1
+    acc_min = -(2 ** (ACC_WIDTH - 1))
+    acc_max = 2 ** (ACC_WIDTH - 1) - 1
+
     # Validate reset signal type
     if not isinstance(i_reset, ResetSignal):
         raise ValueError("Reset signal must be a ResetSignal")
 
     # Shadow signals for each matrix element - following fp8_processing_array pattern
-    a_slices = [Signal(intbv(0)[DATA_WIDTH:]) for _ in range(ARRAY_SIZE)]
-    b_slices = [Signal(intbv(0)[DATA_WIDTH:]) for _ in range(ARRAY_SIZE)]
+    a_slices = [Signal(intbv(0, min=data_min, max=data_max)) for _ in range(ARRAY_SIZE)]
+    b_slices = [Signal(intbv(0, min=data_min, max=data_max)) for _ in range(ARRAY_SIZE)]
 
     t_State = enum("IDLE", "PROCESSING")
     state = Signal(t_State.IDLE)
@@ -64,17 +68,17 @@ def processing_array_3x3(
     @always_comb
     def shadow_slices():
         # Extract from matrix A - with fixed bit slices
-        a_slices[0].next = i_a_vector[7:0].signed()  # A[0] (first element)
-        a_slices[1].next = i_a_vector[15:8].signed()  # A[1] (second element)
-        a_slices[2].next = i_a_vector[23:16].signed()  # A[2] (third element)
+        a_slices[0].next = i_a_vector[7:0]  # A[0] (first element)
+        a_slices[1].next = i_a_vector[15:8]  # A[1] (second element)
+        a_slices[2].next = i_a_vector[23:16]  # A[2] (third element)
 
         # Extract from matrix B - with fixed bit slices
-        b_slices[0].next = i_b_vector[7:0].signed()  # B[0] (first element)
-        b_slices[1].next = i_b_vector[15:8].signed()  # B[1] (second element)
-        b_slices[2].next = i_b_vector[23:16].signed()  # B[2] (third element)
+        b_slices[0].next = i_b_vector[7:0]  # B[0] (first element)
+        b_slices[1].next = i_b_vector[15:8]  # B[1] (second element)
+        b_slices[2].next = i_b_vector[23:16]  # B[2] (third element)
 
     # PE outputs - following fp8_processing_array pattern
-    pe_results = [Signal(intbv(0)[ACC_WIDTH:]) for _ in range(NUM_PES)]
+    pe_results = [Signal(intbv(0, min=acc_min, max=acc_max)) for _ in range(NUM_PES)]
     pe_overflows = [Signal(bool(0)) for _ in range(NUM_PES)]
     pe_dones = [Signal(bool(0)) for _ in range(NUM_PES)]
     all_pes_done = Signal(bool(0))
@@ -297,17 +301,26 @@ def processing_array_3x3(
             temp_result_matrix.next = 0
         else:
             if all_pes_done:
-                temp_result_matrix.next = ConcatSignal(
-                    pe_results[8],
-                    pe_results[7],
-                    pe_results[6],
-                    pe_results[5],
-                    pe_results[4],
-                    pe_results[3],
-                    pe_results[2],
-                    pe_results[1],
-                    pe_results[0],
-                )
+                temp_result_matrix.next[32:0] = pe_results[0]
+                temp_result_matrix.next[64:32] = pe_results[1]
+                temp_result_matrix.next[96:64] = pe_results[2]
+                temp_result_matrix.next[128:96] = pe_results[3]
+                temp_result_matrix.next[160:128] = pe_results[4]
+                temp_result_matrix.next[192:160] = pe_results[5]
+                temp_result_matrix.next[224:192] = pe_results[6]
+                temp_result_matrix.next[256:224] = pe_results[7]
+                temp_result_matrix.next[288:256] = pe_results[8]
+                # temp_result_matrix.next = ConcatSignal(
+                #    pe_results[8],
+                #    pe_results[7],
+                #    pe_results[6],
+                #    pe_results[5],
+                #    pe_results[4],
+                #    pe_results[3],
+                #    pe_results[2],
+                #    pe_results[1],
+                #    pe_results[0],
+                # )
             else:
                 temp_result_matrix.next = temp_result_matrix
 

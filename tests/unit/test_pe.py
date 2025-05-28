@@ -11,29 +11,38 @@ from src.hdl.components.pe import processing_element
 from tests.utils.hdl_test_utils import test_runner
 
 
-class TestProcessingElement(unittest.TestCase):
+class TestProcessingElementUnit(unittest.TestCase):
     """Test case for the Processing Element module."""
 
     def setUp(self):
         """Set up common signals and parameters for the tests."""
+        # Parameters
         self.sim = None
         self.data_width = 8
         self.acc_width = 32
 
+        # Add the missing clock signal
         self.clk = Signal(bool(0))
 
-        # FIXED: Use simple bit width specifications to match PE expectations
-        self.i_a = Signal(intbv(0)[self.data_width :])
-        self.i_b = Signal(intbv(0)[self.data_width :])
+        # Define test inputs
+        self.i_a = Signal(
+            intbv(0, min=-(2 ** (self.data_width - 1)), max=2 ** (self.data_width - 1))
+        )
+        self.i_b = Signal(
+            intbv(0, min=-(2 ** (self.data_width - 1)), max=2 ** (self.data_width - 1))
+        )
 
         self.i_enable = Signal(bool(0))
         self.i_clear = Signal(bool(0))
         self.i_reset = ResetSignal(0, active=1, isasync=False)
 
-        # FIXED: Use simple bit width for output
-        self.o_result = Signal(intbv(0)[self.acc_width :])
+        # Output signals
+        self.o_result = Signal(
+            intbv(0, min=-(2 ** (self.acc_width - 1)), max=2 ** (self.acc_width - 1))
+        )
+
         self.o_overflow = Signal(bool(0))
-        self.o_done = Signal(bool(0))
+        self.o_done = Signal(bool(0))  # Add done signal for timing control
 
     def tearDown(self):
         if self.sim is not None:
@@ -42,7 +51,7 @@ class TestProcessingElement(unittest.TestCase):
     def create_processing_element(self):
         """Create the processing element instance."""
         return processing_element(
-            clk=self.clk,
+            clk=self.clk,  # Use self.clk instead of Signal(bool(0))
             i_reset=self.i_reset,
             i_a=self.i_a,
             i_b=self.i_b,
@@ -66,40 +75,114 @@ class TestProcessingElement(unittest.TestCase):
             self.i_reset.next = 0
             yield self.clk.posedge
 
-            # Set inputs - FIXED: Handle signed values properly
+            # Set inputs
             self.i_a.next = 5
             self.i_b.next = 3
             self.i_enable.next = 1
+            self.i_clear.next = 0
             yield self.clk.posedge
-            self.i_enable.next = 0
-
-            # Wait for done signal
+            self.i_enable.next = 0  # Disable after one cycle
             while not self.o_done:
                 yield self.clk.posedge
 
-            # Check result - FIXED: Use .signed() for proper comparison
-            print(f"Result: {self.o_result.signed()}, Expected: 15")
-            self.assertEqual(self.o_result.signed(), 15)
+            # Check result
+            self.assertEqual(self.o_result, 15)
             self.assertFalse(self.o_overflow)
 
             # Clear the accumulator
             self.i_clear.next = 1
             yield self.clk.posedge
+            yield self.clk.negedge
             self.i_clear.next = 0
             yield self.clk.posedge
 
             # Check accumulator is cleared
             self.assertEqual(self.o_result, 0)
-            print("Basic test passed!")
+
+        # Move this inside the test method and fix the function calls
+        self.sim = test_runner(
+            self.create_processing_element,  # Remove parentheses
+            lambda: test_sequence,  # Remove parentheses
+            clk=self.clk,
+            period=10,
+            dut_name="processing_element",
+            vcd_output=True,
+            verilog_output=True,
+            duration=500,
+        )
+
+    def test_overflow_behavior(self):
+        """Test that overflow is detected and accumulator saturates properly."""
+
+        @instance
+        def test_sequence():
+            self.i_reset.next = 1
+            yield self.clk.posedge
+            self.i_reset.next = 0
+            yield self.clk.posedge
+
+            # Use large positive values to cause overflow
+            self.i_a.next = 2 ** (self.data_width - 1) - 1  # Max positive
+            self.i_b.next = 2 ** (self.data_width - 1) - 1
+
+            # Wait for overflow
+            cycles = 0
+            while not self.o_overflow:
+                yield self.clk.posedge
+                self.i_enable.next = 1
+                yield self.clk.posedge
+                cycles += 1
+                self.i_enable.next = 0
+                while not self.o_done:
+                    yield self.clk.posedge
+                    cycles = cycles + 1
+
+            print(f"Overflow detected after {cycles} cycles")
+
+            # Should be saturated at acc_max
+            acc_max = 2 ** (self.acc_width - 1) - 1
+            self.assertEqual(self.o_result, acc_max)
+            self.assertTrue(self.o_overflow)
 
         self.sim = test_runner(
             self.create_processing_element,
             lambda: test_sequence,
             clk=self.clk,
             period=10,
-            dut_name="processing_element",
+            dut_name="processing_element_overflow",
             vcd_output=True,
-            verilog_output=True,
+            duration=10000000,
+        )
+
+    def test_multi_cycle_accumulate(self):
+        """Test accumulation over multiple MAC operations."""
+
+        @instance
+        def test_sequence():
+            self.i_reset.next = 1
+            yield self.clk.posedge
+            self.i_reset.next = 0
+            yield self.clk.posedge
+
+            total = 0
+            for i in range(5):
+                self.i_a.next = i + 1
+                self.i_b.next = 2
+                self.i_enable.next = 1
+                yield self.clk.posedge
+                self.i_enable.next = 0
+                while not self.o_done:
+                    yield self.clk.posedge
+                total += (i + 1) * 2
+                self.assertEqual(self.o_result, total)
+
+        self.sim = test_runner(
+            self.create_processing_element,
+            lambda: test_sequence,
+            clk=self.clk,
+            period=10,
+            dut_name="processing_element_accumulate",
+            vcd_output=True,
             duration=1000,
         )
 
@@ -113,20 +196,16 @@ class TestProcessingElement(unittest.TestCase):
             self.i_reset.next = 0
             yield self.clk.posedge
 
-            # FIXED: Handle negative values properly with intbv
-            self.i_a.next = intbv(-3)[self.data_width :]  # -3 as 8-bit signed
+            self.i_a.next = -3
             self.i_b.next = 4
             self.i_enable.next = 1
             yield self.clk.posedge
             self.i_enable.next = 0
-
             while not self.o_done:
                 yield self.clk.posedge
 
-            print(f"Negative test result: {self.o_result.signed()}, Expected: -12")
             self.assertEqual(self.o_result.signed(), -12)
             self.assertFalse(self.o_overflow)
-            print("Negative test passed!")
 
         self.sim = test_runner(
             self.create_processing_element,
@@ -135,8 +214,7 @@ class TestProcessingElement(unittest.TestCase):
             period=10,
             dut_name="processing_element_negative",
             vcd_output=True,
-            verilog_output=True,
-            duration=1000,
+            duration=500,
         )
 
 
