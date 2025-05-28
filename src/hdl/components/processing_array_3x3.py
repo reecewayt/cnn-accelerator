@@ -50,8 +50,8 @@ def processing_array_3x3(
         raise ValueError("Reset signal must be a ResetSignal")
 
     # Shadow signals for each matrix element - following fp8_processing_array pattern
-    a_slices = [Signal(intbv(0, min=-128, max=128)) for _ in range(ARRAY_SIZE)]
-    b_slices = [Signal(intbv(0, min=-128, max=128)) for _ in range(ARRAY_SIZE)]
+    a_slices = [Signal(intbv(0)[DATA_WIDTH:]) for _ in range(ARRAY_SIZE)]
+    b_slices = [Signal(intbv(0)[DATA_WIDTH:]) for _ in range(ARRAY_SIZE)]
 
     t_State = enum("IDLE", "PROCESSING")
     state = Signal(t_State.IDLE)
@@ -64,21 +64,20 @@ def processing_array_3x3(
     @always_comb
     def shadow_slices():
         # Extract from matrix A - with fixed bit slices
-        a_slices[0].next = i_a_vector[7:0]  # A[0] (first element)
-        a_slices[1].next = i_a_vector[15:8]  # A[1] (second element)
-        a_slices[2].next = i_a_vector[23:16]  # A[2] (third element)
+        a_slices[0].next = i_a_vector[7:0].signed()  # A[0] (first element)
+        a_slices[1].next = i_a_vector[15:8].signed()  # A[1] (second element)
+        a_slices[2].next = i_a_vector[23:16].signed()  # A[2] (third element)
 
         # Extract from matrix B - with fixed bit slices
-        b_slices[0].next = i_b_vector[7:0]  # B[0] (first element)
-        b_slices[1].next = i_b_vector[15:8]  # B[1] (second element)
-        b_slices[2].next = i_b_vector[23:16]  # B[2] (third element)
+        b_slices[0].next = i_b_vector[7:0].signed()  # B[0] (first element)
+        b_slices[1].next = i_b_vector[15:8].signed()  # B[1] (second element)
+        b_slices[2].next = i_b_vector[23:16].signed()  # B[2] (third element)
 
     # PE outputs - following fp8_processing_array pattern
-    pe_results = [Signal(intbv(0, min=-(2**31), max=2**31)) for _ in range(NUM_PES)]
+    pe_results = [Signal(intbv(0)[ACC_WIDTH:]) for _ in range(NUM_PES)]
     pe_overflows = [Signal(bool(0)) for _ in range(NUM_PES)]
     pe_dones = [Signal(bool(0)) for _ in range(NUM_PES)]
     all_pes_done = Signal(bool(0))
-    all_pes_done_latch = Signal(bool(0))
 
     # output_matrix_reg = Signal(intbv(0)[NUM_PES * ACC_WIDTH : 0])
 

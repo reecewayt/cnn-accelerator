@@ -15,22 +15,16 @@ def processing_element(
     data_width=8,
     acc_width=32,
 ):
-    # Constants
-    acc_min = -(2 ** (acc_width - 1))
-    acc_max = 2 ** (acc_width - 1) - 1
-    prod_min = -(2 ** (2 * data_width - 1))
-    prod_max = 2 ** (2 * data_width - 1) - 1
-
-    # Internal signals
-    accumulator = Signal(intbv(0, min=acc_min, max=acc_max + 1))
-    product = Signal(intbv(0, min=prod_min, max=prod_max + 1))
-    sum_result = Signal(intbv(0, min=2 * acc_min, max=2 * acc_max + 1))
-
-    product_latched = Signal(intbv(0, min=prod_min, max=prod_max + 1))
+    accumulator = Signal(intbv(0)[acc_width:])
+    product = Signal(intbv(0)[2 * data_width :])
+    product_latched = Signal(intbv(0)[2 * data_width :])
     valid_product = Signal(bool(0))  # Marks when product_latched is valid
-
     overflow_flag = Signal(bool(0))
     done_flag = Signal(bool(0))
+
+    # Constants for overflow checking (keep as Python variables, not in signals)
+    acc_min = -(2 ** (acc_width - 1))
+    acc_max = 2 ** (acc_width - 1) - 1
 
     # Combinational multiplication (Cycle 1)
     @always_comb
