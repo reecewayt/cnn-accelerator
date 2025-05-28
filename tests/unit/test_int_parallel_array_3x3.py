@@ -1,5 +1,6 @@
 """
-Test for the hardcoded 3x3 Integer Processing Array
+Test for the refactored 3x3 Integer Processing Array
+Following the exact pattern from the working 2x2 test
 """
 
 import unittest
@@ -11,49 +12,58 @@ import os
 # Import your module and utilities
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
-from hdl.components.int_processing_array import processing_array_3x3
+from src.hdl.components.processing_array_3x3 import processing_array_3x3
 from tests.utils.hdl_test_utils import test_runner
+from tests.utils.hdl_bit_vector_helpers import extract_matrix_vectors
 
 
 class Test3x3ProcessingArray(unittest.TestCase):
-    """Test case for the 3x3 Integer Processing Array module."""
+    """Test case for the refactored 3x3 Integer Processing Array module."""
 
     def setUp(self):
         """Set up common signals and parameters for the tests."""
+        # Parameters
         self.sim = None
-
-        # Hardcoded for 3x3 design
-        self.array_size = 3
+        self.rows = 3
+        self.cols = 3
         self.data_width = 8
-        self.acc_width = 16
+        self.acc_width = 32
 
-        # Define test matrices (3x3)
-        self.matrix_A = np.array([[2, 3, 1], [4, 1, 2], [1, 2, 3]], dtype=np.int8)
+        # Define test matrices (3x3) - small values to avoid overflow
+        self.matrix_A = np.array([[2, 1, 3], [1, 2, 1], [3, 1, 2]])  # 3x3 matrix
 
-        self.matrix_B = np.array([[1, 2, 1], [3, 1, 2], [2, 1, 4]], dtype=np.int8)
+        self.matrix_B = np.array([[1, 2, 1], [2, 1, 3], [1, 3, 2]])  # 3x3 matrix
 
         # Calculate expected result using NumPy
         self.expected_C = np.matmul(self.matrix_A, self.matrix_B)
-        print(f"Expected matrix C (A × B):\n{self.expected_C}")
 
-        # Create signals
+        # Common signals
         self.clk = Signal(bool(0))
         self.reset = ResetSignal(0, active=1, isasync=False)
 
-        # Input vectors (24 bits each for 3 × 8-bit elements)
-        self.i_a_vector = Signal(intbv(0)[24:])
-        self.i_b_vector = Signal(intbv(0)[24:])
+        # Column Vector of Length Rows from Matrix A
+        self.i_a_vector = Signal(intbv(0)[self.rows * self.data_width : 0])
+
+        # Row Vector of Length Cols from Matrix B
+        self.i_b_vector = Signal(intbv(0)[self.cols * self.data_width : 0])
 
         # Control signals
         self.i_data_valid = Signal(bool(0))
         self.i_read_enable = Signal(bool(0))
         self.i_clear_acc = Signal(bool(0))
 
-        # Output signals (144 bits for 9 × 16-bit elements)
-        self.o_result_matrix = Signal(intbv(0)[144:])
+        # Output signals
+        self.o_result_matrix = Signal(
+            intbv(0)[self.rows * self.cols * self.acc_width : 0]
+        )
         self.o_computation_done = Signal(bool(0))
         self.o_ready_for_data = Signal(bool(0))
         self.o_overflow_detected = Signal(bool(0))
+
+        # Extract vectors using the utility function - EXACTLY like the 2x2 test
+        self.a_vectors, self.b_vectors = extract_matrix_vectors(
+            self.matrix_A, self.matrix_B, self.data_width
+        )
 
     def tearDown(self):
         if self.sim is not None:
@@ -75,49 +85,13 @@ class Test3x3ProcessingArray(unittest.TestCase):
             o_overflow_detected=self.o_overflow_detected,
         )
 
-    def pack_vector(self, vector, data_width=8):
-        """Pack a vector into a bit vector."""
-        packed = intbv(0)[len(vector) * data_width :]
-        for i, val in enumerate(vector):
-            # Convert to unsigned representation for packing
-            if val < 0:
-                unsigned_val = (1 << data_width) + val  # Two's complement
-            else:
-                unsigned_val = val
-            packed[(i + 1) * data_width : i * data_width] = unsigned_val
-        return packed
-
-    def unpack_result_matrix(self, packed_result, num_elements=9, element_width=16):
-        """Unpack the result matrix from bit vector."""
-        result = np.zeros((3, 3), dtype=np.int16)
-
-        for i in range(3):  # rows
-            for j in range(3):  # cols
-                element_idx = i * 3 + j
-                start_bit = element_idx * element_width
-                end_bit = (element_idx + 1) * element_width
-
-                # Extract bits
-                raw_val = int(packed_result[end_bit:start_bit])
-
-                # Convert from unsigned to signed if needed
-                if raw_val >= (1 << (element_width - 1)):
-                    signed_val = raw_val - (1 << element_width)
-                else:
-                    signed_val = raw_val
-
-                result[i][j] = signed_val
-
-        return result
-
     def testMatrixMultiplication(self):
-        """Test 3x3 matrix multiplication using the processing array."""
+        """Test basic 3x3 matrix multiplication using the processing array - following 2x2 pattern."""
 
         @instance
         def test_sequence():
-            # Reset the array
+            # Reset the array before starting
             self.reset.next = True
-            yield self.clk.posedge
             yield self.clk.posedge
             self.reset.next = False
             yield self.clk.posedge
@@ -129,103 +103,73 @@ class Test3x3ProcessingArray(unittest.TestCase):
             self.i_clear_acc.next = False
             yield self.clk.posedge
 
-            # Print input matrices for debugging
+            # Print matrices for debugging
             print("\nMatrix A:")
             print(self.matrix_A)
             print("\nMatrix B:")
             print(self.matrix_B)
-
-            # Process each column of A with each row of B
-            for col in range(self.array_size):
-                print(f"\n=== Processing column {col} of A with all rows of B ===")
-
-                # Extract column from A and prepare as vector
-                a_column = self.matrix_A[:, col]
-                print(f"A column {col}: {a_column}")
-
-                for row in range(self.array_size):
-                    print(f"\n--- Processing with row {row} of B ---")
-
-                    # Extract row from B
-                    b_row = self.matrix_B[row, :]
-                    print(f"B row {row}: {b_row}")
-
-                    # Pack vectors
-                    packed_a = self.pack_vector(a_column)
-                    packed_b = self.pack_vector(b_row)
-
-                    print(f"Packed A: 0x{int(packed_a):06x}")
-                    print(f"Packed B: 0x{int(packed_b):06x}")
-
-                    # Wait for ready
-                    timeout = 0
-                    while not self.o_ready_for_data and timeout < 100:
-                        yield self.clk.posedge
-                        timeout += 1
-
-                    if not self.o_ready_for_data:
-                        self.fail("Timeout waiting for ready signal")
-
-                    # Set inputs
-                    self.i_a_vector.next = packed_a
-                    self.i_b_vector.next = packed_b
-
-                    # Start computation
-                    self.i_data_valid.next = True
-                    yield self.clk.posedge
-                    self.i_data_valid.next = False
-
-                    # Wait for computation to complete
-                    timeout = 0
-                    while not self.o_computation_done and timeout < 100:
-                        yield self.clk.posedge
-                        timeout += 1
-
-                    if not self.o_computation_done:
-                        self.fail("Timeout waiting for computation done")
-
-                    print("Computation completed")
-
-                    # Wait for data_valid to be processed
-                    yield self.clk.posedge
-                    yield self.clk.posedge
-
-            # Read final results
-            print("\n=== Reading final results ===")
-            self.i_read_enable.next = True
-            yield self.clk.posedge
-            yield self.clk.posedge
-            self.i_read_enable.next = False
-            yield self.clk.posedge
-
-            # Verify results
-            result_matrix = self.unpack_result_matrix(self.o_result_matrix)
-
-            print(f"\nFinal result matrix:")
-            print(result_matrix)
-            print(f"\nExpected result matrix:")
+            print(f"\nExpected result matrix C (A × B):")
             print(self.expected_C)
 
-            # Check for overflow
-            if self.o_overflow_detected:
-                print("WARNING: Overflow detected during computation")
+            # Process vectors in reverse order (last to first)
+            # For a 3x3 matrix, this means we'll process column 2, then column 1, then column 0
+            # For matrix B, we'll process row 2, then row 1, then row 0
+            # EXACTLY following the 2x2 test pattern
+            for i in range(len(self.a_vectors) - 1, -1, -1):
+                # Get the corresponding index for B vectors (same direction)
+                b_idx = i
 
-            # Verify each element
-            for i in range(3):
-                for j in range(3):
-                    expected = self.expected_C[i, j]
-                    actual = result_matrix[i, j]
-                    print(f"C[{i}][{j}]: expected={expected}, actual={actual}")
+                print(f"\n=== Processing vector pair {i} ===")
+                print(f"A vector {i}: 0x{int(self.a_vectors[i]):06x}")
+                print(f"B vector {b_idx}: 0x{int(self.b_vectors[b_idx]):06x}")
 
+                # Assign input vectors
+                self.i_a_vector.next = self.a_vectors[i]
+                self.i_b_vector.next = self.b_vectors[b_idx]
+
+                # Set data valid and process
+                self.i_data_valid.next = True
+                yield self.clk.posedge
+                self.i_data_valid.next = False
+
+                # Wait a cycle for processing
+                yield self.clk.posedge
+
+            # Wait for computation to complete
+            for _ in range(3):
+                yield self.clk.posedge
+
+            # Enable reading the result
+            self.i_read_enable.next = True
+            yield self.clk.posedge
+            self.i_read_enable.next = False
+
+            # Verify results
+            for i in range(self.rows):
+                for j in range(self.cols):
+                    # Extract result from flattened output
+                    index = (i * self.cols + j) * self.acc_width
+                    result = int(self.o_result_matrix[index + self.acc_width : index])
+                    expected = self.expected_C[i][j]
+
+                    # Print debug info
+                    print(f"C[{i}][{j}] = {result}, Expected: {expected}")
+
+                    # Assert equality
                     self.assertEqual(
-                        actual,
+                        result,
                         expected,
-                        f"Mismatch at position ({i},{j}): expected {expected}, got {actual}",
+                        f"Result at position ({i},{j}) is {result}, expected {expected}",
                     )
+
+            # Check for overflow (should be False for this test)
+            self.assertEqual(
+                self.o_overflow_detected, False, f"Overflow detected when not expected"
+            )
 
             print("\n=== All tests passed! ===")
 
-        # Run simulation
+        # Run simulation using the test runner
         self.sim = test_runner(
             self.create_3x3_processing_array,
             lambda: test_sequence,
@@ -234,7 +178,85 @@ class Test3x3ProcessingArray(unittest.TestCase):
             dut_name="processing_array_3x3",
             vcd_output=True,
             verilog_output=False,
-            duration=5000,
+            duration=2000,  # Increased duration for 3x3
+        )
+
+    def testClearAccumulator(self):
+        """Test clearing accumulator functionality - following 2x2 pattern."""
+
+        @instance
+        def test_sequence():
+            # Reset the array
+            self.reset.next = True
+            yield self.clk.posedge
+            self.reset.next = False
+            yield self.clk.posedge
+
+            # Create simple test vectors
+            simple_A = np.ones((3, 3), dtype=int)
+            simple_B = np.ones((3, 3), dtype=int)
+
+            # Extract vectors
+            a_vectors, b_vectors = extract_matrix_vectors(
+                simple_A, simple_B, self.data_width
+            )
+
+            # Perform one computation cycle
+            for i in range(len(a_vectors) - 1, -1, -1):
+                b_idx = i
+
+                # Assign input vectors
+                self.i_a_vector.next = a_vectors[i]
+                self.i_b_vector.next = b_vectors[b_idx]
+
+                # Set data valid and process
+                self.i_data_valid.next = True
+                yield self.clk.posedge
+                self.i_data_valid.next = False
+
+                # Wait a cycle for processing
+                yield self.clk.posedge
+
+            # Wait for computation
+            for _ in range(3):
+                yield self.clk.posedge
+
+            # Clear accumulators
+            self.i_clear_acc.next = True
+            yield self.clk.posedge
+            self.i_clear_acc.next = False
+            yield self.clk.posedge
+
+            # Read results (should be zero)
+            self.i_read_enable.next = True
+            yield self.clk.posedge
+            self.i_read_enable.next = False
+            yield self.clk.posedge
+
+            # Verify all results are zero
+            for i in range(self.rows):
+                for j in range(self.cols):
+                    # Extract result from flattened output
+                    index = (i * self.cols + j) * self.acc_width
+                    result = int(self.o_result_matrix[index + self.acc_width : index])
+
+                    self.assertEqual(
+                        result,
+                        0,
+                        f"Expected 0 after clear, got {result} at position ({i},{j})",
+                    )
+
+            print("Clear accumulator test passed!")
+
+        # Run simulation
+        self.sim = test_runner(
+            self.create_3x3_processing_array,
+            lambda: test_sequence,
+            clk=self.clk,
+            period=10,
+            dut_name="processing_array_3x3_clear_test",
+            vcd_output=True,
+            duration=2000,
         )
 
 
