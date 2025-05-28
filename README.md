@@ -1,5 +1,7 @@
 # cnn-accelerator
-A CNN accelerator based in MyHDL (Python)
+This project is part of a coding challenge to create an accelerator for some AI/ML workload or algorithm. What I've designed here are two prototypes for a parallel processing array. One for 8-bit floating point, and one for 8-bit integer operations. Below is a introduction to the floating point format I used. If you want more context into the project please visit the accompanying [wiki](https://github.com/reecewayt/llm-assisted-design-portfolio/wiki) I wrote. The work load I set to accelerate here are CNNs, but this project focuses solely on the processing array with the assumption that a img2column transformation is applied to an input feature map. See my notes below on this transformation.
+
+The modules in this project require python to run so I've included a `requirements.txt` file for quick setup. See the instructions below.
 
 ### Install required packages
 
@@ -11,21 +13,22 @@ source venv/bin/activate
 # Install packages from requirements.txt
 pip install -r requirements.txt
 ```
-
+- Once all setup, you can run any test with simple python commands
+```bash
+# Example
+python tests/unit/test_fp8_parallel_array.py
+# View waveform output
+gtkwave vcd/fp8processingarray/fp8_processing_array_testMatrixMultiplication.vcd
+```
 
 ### Project Structure
 
 ```bash
 cnn-accelerator/
 ├── src/
-│   ├── __init__.py
 │   ├── hdl/                  # MyHDL source code
-│   │   ├── __init__.py
-│   │   ├── layers/           # CNN layer implementations
-│   │   ├── memory/           # Memory interfaces
-│   │   └── top.py            # Top-level design
+│   │   └── components/       # Design code
 │   └── utils/                # Helper functions
-│       └── __init__.py
 ├── gen/                      # Generated Verilog/VHDL files
 │   └── verilog/              # Generated Verilog output
 ├── tests/                    # Test files
@@ -33,7 +36,6 @@ cnn-accelerator/
 │   └── integration/          # Full system tests
 ├── docs/                     # Documentation
 ├── scripts/                  # Build scripts, automation
-│   └── generate_hdl.py       # Script to run code generation
 ├── venv/                     # Virtual environment (gitignored)
 ├── requirements.txt          # Dependencies
 └── README.md                 # Project documentation
@@ -318,4 +320,4 @@ This is exactly the same result as direct convolution!
 
 The key advantage of im2col is that it transforms convolution operations into matrix multiplications, which are highly optimized in modern computing libraries and hardware. For multiple filters/output channels, we can stack multiple kernel row vectors into a matrix and perform a single matrix multiplication.
 
-This approach allows CNNs to leverage highly optimized linear algebra libraries (like BLAS) and makes better use of parallel computing resources (GPUs). The tradeoff is increased memory usage, as the im2col operation duplicates input values across multiple columns.
+This approach allows CNNs to leverage highly optimized linear algebra libraries and makes better use of parallel computing resources (GPUs). The tradeoff is increased memory usage, as the im2col operation duplicates input values across multiple columns.

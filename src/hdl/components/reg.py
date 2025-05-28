@@ -4,14 +4,8 @@ from myhdl import *
 @block
 def register(clk, reset, d, en, q, width=64):
     """
-    A simple register with optional enable and reset functionality.
-    Parameters:
-    - clk: Clock signal
-    - reset: Active-high reset signal
-    - d: Data input
-    - q: Data output
-    - en: Enable signal (optional)
-    - width: Width of the register (default is 64 bits)
+    A simple register with optional enable and reset functionality. This was
+    a worked toy example to understand how to use MyHDL.
     """
 
     # Storage for the register

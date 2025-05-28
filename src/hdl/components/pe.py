@@ -1,83 +1,79 @@
-"""
-Processing element with simultaneous input for systolic array
-"""
-
 from myhdl import *
-from src.hdl.components.mac import mac
 
 
 @block
-def pe(
+def processing_element(
     clk,
-    # Inputs
+    i_reset,
     i_a,
     i_b,
-    i_data_valid,
-    i_read_en,
-    i_reset,
-    # Outputs
-    o_c,
-    o_saturate_detect,
-    # Parameters
-    data_width=32,
-    acc_width=64,
+    i_enable,
+    i_clear,
+    o_result,
+    o_overflow,
+    o_done,
+    data_width=8,
+    acc_width=32,
 ):
-    """
-    Processing Element (PE) for systolic array architecture
-    Elements see input values simultaneously, latching them when data is valid
+    # Constants
+    acc_min = -(2 ** (acc_width - 1))
+    acc_max = 2 ** (acc_width - 1) - 1
+    prod_min = -(2 ** (2 * data_width - 1))
+    prod_max = 2 ** (2 * data_width - 1) - 1
 
-    Parameters:
-    - clk: Clock signal
-    - i_a, i_b: Input operands
-    - i_data_valid: Signal indicating valid input data
-    - i_read_en: Enable reading of result
-    - i_reset: Reset signal
-    - o_a, o_b: Pass-through outputs
-    - o_c: Output result
-    - o_saturate_detect: Overflow/saturation detection flag
-    - data_width: Width of input data
-    - acc_width: Width of accumulator
-    """
-    # Reset signal check
-    if not isinstance(i_reset, ResetSignal):
-        raise ValueError("Reset signal must be a ResetSignal")
+    # Internal signals
+    accumulator = Signal(intbv(0, min=acc_min, max=acc_max + 1))
+    product = Signal(intbv(0, min=prod_min, max=prod_max + 1))
+    sum_result = Signal(intbv(0, min=2 * acc_min, max=2 * acc_max + 1))
 
-    # Internal signals for MAC unit
-    mac_result = Signal(intbv(0)[acc_width:])
-    mac_enable = Signal(bool(0))
-    mac_overflow = Signal(bool(0))
+    product_latched = Signal(intbv(0, min=prod_min, max=prod_max + 1))
+    valid_product = Signal(bool(0))  # Marks when product_latched is valid
 
-    # Instantiate the MAC unit
-    mac_unit = mac(
-        clk=clk,
-        reset=i_reset,
-        a=i_a,
-        b=i_b,
-        enable=mac_enable,
-        result=mac_result,
-        overflow=mac_overflow,
-    )
+    overflow_flag = Signal(bool(0))
+    done_flag = Signal(bool(0))
 
+    # Combinational multiplication (Cycle 1)
     @always_comb
-    def mac_enable_logic():
-        """
-        Disable MAC unit if saturation is detected
-        """
-        if i_data_valid and not mac_overflow:
-            mac_enable.next = True
+    def comb_product():
+        product.next = i_a * i_b
+
+    # Sequential MAC operation (Cycle 1 + Cycle 2)
+    @always_seq(clk.posedge, reset=i_reset)
+    def seq_logic():
+        if i_clear:
+            accumulator.next = 0
+            product_latched.next = 0
+            valid_product.next = False
+            done_flag.next = False
+            overflow_flag.next = False
+        elif i_enable and not valid_product:
+            # Cycle 1: latch product
+            product_latched.next = product
+            valid_product.next = True
+            done_flag.next = False
+        elif valid_product:
+            # Cycle 2: accumulate and check overflow
+            temp_sum = int(accumulator) + int(product_latched)
+            if temp_sum > acc_max:
+                accumulator.next = acc_max
+                overflow_flag.next = True
+            elif temp_sum < acc_min:
+                accumulator.next = acc_min
+                overflow_flag.next = True
+            else:
+                accumulator.next = temp_sum
+                overflow_flag.next = False
+
+            done_flag.next = True
+            valid_product.next = False
         else:
-            mac_enable.next = False
+            done_flag.next = False
 
+    # Output assignments
     @always_comb
-    def output_logic():
-        # Output the MAC result when read is enabled
-        if i_read_en:
-            o_c.next = mac_result
-
-        elif not i_read_en:
-            o_c.next = 0
-
-        # Connect saturation detect to MAC overflow
-        o_saturate_detect.next = mac_overflow
+    def comb_output():
+        o_result.next = accumulator
+        o_overflow.next = overflow_flag
+        o_done.next = done_flag
 
     return instances()

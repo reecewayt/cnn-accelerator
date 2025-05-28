@@ -37,36 +37,40 @@ def processing_array(
     if not isinstance(i_reset, ResetSignal):
         raise ValueError("Reset signal must be a ResetSignal")
 
-    # We need shadow signals to do structural modeling as described
-    # in the MyHDL documentation.
-    a_slices = [Signal(intbv(0)[data_width:0]) for _ in range(rows)]
-    b_slices = [Signal(intbv(0)[data_width:0]) for _ in range(cols)]
+    # Shadow signals for proper structural modeling
+    a_slices = [Signal(intbv(0)[data_width:]) for _ in range(rows)]
+    b_slices = [Signal(intbv(0)[data_width:]) for _ in range(cols)]
 
-    # Connect shadow signal to input vectors
+    # Connect shadow signals to input vectors - FIXED SLICING
     @always_comb
     def shadow_slices():
         for i in range(rows):
-            a_slices[i].next = i_a_vector[(i + 1) * data_width - 1 : i * data_width]
+            # Correct bit slicing: [high:low]
+            high_bit = (i + 1) * data_width
+            low_bit = i * data_width
+            a_slices[i].next = i_a_vector[high_bit:low_bit]
+
         for j in range(cols):
-            b_slices[j].next = i_b_vector[(j + 1) * data_width - 1 : j * data_width]
+            high_bit = (j + 1) * data_width
+            low_bit = j * data_width
+            b_slices[j].next = i_b_vector[high_bit:low_bit]
 
     # PE outputs
-    c_outputs = [Signal(intbv(0)[acc_width:0]) for _ in range(rows * cols)]
+    c_outputs = [Signal(intbv(0)[acc_width:]) for _ in range(rows * cols)]
     saturate_flags = [Signal(bool(0)) for _ in range(rows * cols)]
 
-    # Instantiate the processing element array - DON'T collect instances manually
+    # Instantiate the processing element array
     pe_instances = []
     for i in range(rows):
         for j in range(cols):
             # Calculate the index for the PE
             pe_idx = i * cols + j
 
-            # Just instantiate without collecting
             pe_instances.append(
                 pe(
                     clk=clk,
-                    i_a=a_slices[i],  # Use shadow signal instead of slice
-                    i_b=b_slices[j],  # Use shadow signal instead of slice
+                    i_a=a_slices[i],  # Use shadow signal
+                    i_b=b_slices[j],  # Use shadow signal
                     i_data_valid=i_data_valid,
                     i_read_en=i_read_en,
                     i_reset=i_reset,
@@ -77,30 +81,20 @@ def processing_array(
                 )
             )
 
-    # Output collection logic
+    # IMPROVED: Output collection logic using concat
     @always_comb
     def output_collection():
-        # Create a temporary value for the output
-        temp = intbv(0)[rows * cols * acc_width : 0]
-
-        # Collect all PE outputs into the flattened output matrix
-        for idx in range(rows * cols):
-            # Calculate bit positions
-            high = (idx + 1) * acc_width - 1
-            low = idx * acc_width
-
-            # Copy each bit from the PE output to the temporary value
-            for bit in range(acc_width):
-                temp[low + bit] = c_outputs[idx][bit]
-
-        # Assign the complete value to the output signal
-        o_c_matrix.next = temp
+        # Method 1: Using MyHDL concat (most reliable)
+        # Reverse the list because concat puts MSB first
+        o_c_matrix.next = concat(*reversed(c_outputs))
 
         # Collect overflow flags (any PE overflow)
-        o_saturate_detect.next = False
+        overflow_detected = False
         for idx in range(rows * cols):
             if saturate_flags[idx]:
-                o_saturate_detect.next = True
+                overflow_detected = True
+                break  # Early exit for efficiency
 
-    # Use the inference-based return
+        o_saturate_detect.next = overflow_detected
+
     return instances()

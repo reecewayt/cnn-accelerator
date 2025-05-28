@@ -207,6 +207,7 @@ class TestProcessingArrayUnit(unittest.TestCase):
             period=10,
             dut_name="processing_array",
             vcd_output=True,
+            verilog_output=False,
             duration=500,
         )
 
