@@ -18,7 +18,6 @@ def processing_array_3x3(
     i_clear_acc,
     o_result_matrix,
     o_computation_done,
-    o_ready_for_data,
     o_overflow_detected,
 ):
     """
@@ -37,7 +36,6 @@ def processing_array_3x3(
     - i_clear_acc: Clear all accumulators
     - o_result_matrix: Flattened 3x3 result matrix (288 bits = 9 x 32-bit elements)
     - o_computation_done: All PEs completed their MAC operations
-    - o_ready_for_data: Array is ready for new input
     - o_overflow_detected: At least one PE detected overflow
     """
 
@@ -249,32 +247,23 @@ def processing_array_3x3(
         if i_reset:
             state.next = t_State.IDLE
             o_computation_done.next = False
-            o_ready_for_data.next = True
             o_overflow_detected.next = False
             all_pes_done.next = False
-            all_pes_done_latch.next = False
         else:
             if state == t_State.IDLE:
+                all_pes_done.next = False
+                o_computation_done.next = False
                 if i_data_valid:
                     state.next = t_State.PROCESSING
-                    o_ready_for_data.next = False
-                    o_computation_done.next = False
-                    all_pes_done_latch.next = False
-                    # Reset all PEs
-                else:
-                    o_ready_for_data.next = True
-                    all_pes_done.next = False
 
             elif state == t_State.PROCESSING:
                 # Check if all PEs are done
                 if all_pes_done:
                     state.next = t_State.IDLE
                     o_computation_done.next = True
-                    all_pes_done_latch.next = True
                 else:
                     state.next = t_State.PROCESSING
                     o_computation_done.next = False
-                    all_pes_done_latch.next = False
 
     @always_comb
     def pe_done_logic():
@@ -309,7 +298,7 @@ def processing_array_3x3(
 
     @always_seq(clk.posedge, reset=i_reset)
     def result_matrix_logic():
-        if i_reset:
+        if i_reset or i_clear_acc:
             temp_result_matrix.next = 0
         else:
             if all_pes_done:

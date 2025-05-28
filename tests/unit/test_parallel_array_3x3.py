@@ -57,7 +57,6 @@ class Test3x3ProcessingArray(unittest.TestCase):
             intbv(0)[self.rows * self.cols * self.acc_width : 0]
         )
         self.o_computation_done = Signal(bool(0))
-        self.o_ready_for_data = Signal(bool(0))
         self.o_overflow_detected = Signal(bool(0))
 
         # Extract vectors using the utility function - EXACTLY like the 2x2 test
@@ -81,7 +80,6 @@ class Test3x3ProcessingArray(unittest.TestCase):
             i_clear_acc=self.i_clear_acc,
             o_result_matrix=self.o_result_matrix,
             o_computation_done=self.o_computation_done,
-            o_ready_for_data=self.o_ready_for_data,
             o_overflow_detected=self.o_overflow_detected,
         )
 
@@ -132,12 +130,12 @@ class Test3x3ProcessingArray(unittest.TestCase):
                 yield self.clk.posedge
                 self.i_data_valid.next = False
 
-                # Wait a cycle for processing
-                yield self.clk.posedge
+                while not self.o_computation_done:
+                    yield self.clk.posedge
 
-            # Wait for computation to complete
-            for _ in range(3):
+            while not self.o_computation_done:
                 yield self.clk.posedge
+            print("\n=== Computation done, reading results ===")
 
             # Enable reading the result
             self.i_read_enable.next = True

@@ -40,9 +40,10 @@ def processing_element(
     # Sequential MAC operation (Cycle 1 + Cycle 2)
     @always_seq(clk.posedge, reset=i_reset)
     def seq_logic():
-        if i_clear:
+        if i_clear or i_reset:
             accumulator.next = 0
             product_latched.next = 0
+            o_result.next = 0
             valid_product.next = False
             done_flag.next = False
             overflow_flag.next = False
