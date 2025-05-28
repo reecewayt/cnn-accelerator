@@ -17,10 +17,11 @@ def test_runner(
     **kwargs,
 ):
     """
-    Comprehensive test runner for MyHDL modules with optional VCD generation.
+    Comprehensive test runner for MyHDL modules with optional VCD generation and optional
+    verilog generation.
     Args:
         dut_function: Function that returns the device under test
-        test_function: Generator function for testing
+        test_function: Generator function for testing (i.e. stimulus)
         clk: Optional clock signal to drive automatically
         period: Clock period if clock signal is provided (default: 10)
         dut_name: Optional name to use for the DUT in VCD filename

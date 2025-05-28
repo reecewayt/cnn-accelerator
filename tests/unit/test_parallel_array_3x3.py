@@ -175,7 +175,7 @@ class Test3x3ProcessingArray(unittest.TestCase):
             period=10,
             dut_name="processing_array_3x3",
             vcd_output=True,
-            verilog_output=False,
+            verilog_output=True,
             duration=2000,  # Increased duration for 3x3
         )
 

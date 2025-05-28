@@ -247,11 +247,8 @@ def processing_array_3x3(
         if i_reset:
             state.next = t_State.IDLE
             o_computation_done.next = False
-            o_overflow_detected.next = False
-            all_pes_done.next = False
         else:
             if state == t_State.IDLE:
-                all_pes_done.next = False
                 o_computation_done.next = False
                 if i_data_valid:
                     state.next = t_State.PROCESSING
@@ -268,18 +265,17 @@ def processing_array_3x3(
     @always_comb
     def pe_done_logic():
         # Update all_pes_done based on individual PE done signals
-        if state == t_State.PROCESSING:
-            all_pes_done.next = (
-                pe_dones[0]
-                and pe_dones[1]
-                and pe_dones[2]
-                and pe_dones[3]
-                and pe_dones[4]
-                and pe_dones[5]
-                and pe_dones[6]
-                and pe_dones[7]
-                and pe_dones[8]
-            )
+        all_pes_done.next = (
+            pe_dones[0]
+            and pe_dones[1]
+            and pe_dones[2]
+            and pe_dones[3]
+            and pe_dones[4]
+            and pe_dones[5]
+            and pe_dones[6]
+            and pe_dones[7]
+            and pe_dones[8]
+        )
 
     # Overflow detection - OR reduction following fp8 pattern
     @always_comb
@@ -302,7 +298,17 @@ def processing_array_3x3(
             temp_result_matrix.next = 0
         else:
             if all_pes_done:
-                temp_result_matrix.next = ConcatSignal(*reversed(pe_results))
+                temp_result_matrix.next = ConcatSignal(
+                    pe_results[8],
+                    pe_results[7],
+                    pe_results[6],
+                    pe_results[5],
+                    pe_results[4],
+                    pe_results[3],
+                    pe_results[2],
+                    pe_results[1],
+                    pe_results[0],
+                )
             else:
                 temp_result_matrix.next = temp_result_matrix
 
