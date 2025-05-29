@@ -328,6 +328,8 @@ def processing_array_3x3(
     def output_logic():
         if i_read_enable:
             o_result_matrix.next = temp_result_matrix
+        else:
+            o_result_matrix.next = 0
 
     # Return all processes and instances
     return instances()

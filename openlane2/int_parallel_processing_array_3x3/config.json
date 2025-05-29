@@ -1,8 +1,15 @@
 {
-    "DESIGN_NAME": "int_processing_array",
+    "DESIGN_NAME": "processing_array_3x3",
     "VERILOG_FILES": [
-        "../../gen/verilog/fp8_processing_array.v"
+        "../../gen/verilog/processing_array_3x3.v"
     ],
     "CLOCK_PERIOD": 25,
-    "CLOCK_PORT": "clk"
+    "CLOCK_PORT": "clk",
+    "DIE_AREA": [
+        0,
+        0,
+        300,
+        300
+    ],
+    "FP_SIZING": "absolute"
 }
