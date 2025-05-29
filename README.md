@@ -1,24 +1,146 @@
-# cnn-accelerator
-This project is part of a coding challenge to create an accelerator for some AI/ML workload or algorithm. What I've designed here are two prototypes for a parallel processing array. One for 8-bit floating point, and one for 8-bit integer operations. Below is a introduction to the floating point format I used. If you want more context into the project please visit the accompanying [wiki](https://github.com/reecewayt/llm-assisted-design-portfolio/wiki) I wrote. The work load I set to accelerate here are CNNs, but this project focuses solely on the processing array with the assumption that a img2column transformation is applied to an input feature map. See my notes below on this transformation.
+# GEMM Core Engine
+This project is part of a coding challenge to create an accelerator for some AI/ML workload or algorithm. What I've designed here are two prototypes for a parallel broadcast array. One for 8-bit floating point, and one for 8-bit integer operations. Below is a introduction to the floating point format I used. If you want more context into the project please visit the accompanying [wiki](https://github.com/reecewayt/llm-assisted-design-portfolio/wiki) I wrote; you will find a design comparison there as well. The work load I set to accelerate here are CNNs, but this project focuses solely on the processing array (i.e. GEMM) with the assumption that a img2column transformation is applied to an input feature map. See my notes below on this transformation.
 
-The modules in this project require python to run so I've included a `requirements.txt` file for quick setup. See the instructions below.
+**Note**: I use the terms GEMM and processing array interchangably. The array I've designed here is different than what is typically used in GEMMs. GEMMs use systolic arrays, but I've implemented a parallel broadcasting array. In a systolic architecture, processing elements (PEs) receive inputs from neighboring cells. In my architecture, input vectors are broadcasted to all PEs at once. A single PE consist of a 8-bit multiply and 32-bit accumulate logic. Values from each PE are collected together and put in a local buffer. Intermediate results do not flow between neighboring cells like that seen in systolic architectures.
 
-### Install required packages
+## Requirements
+
+### Software Dependencies
+
+The modules in this project require the following software:
+
+- **Python 3.8+** - Core development language
+- **MyHDL** - Hardware description in Python
+- **OpenLane 2** - ASIC synthesis and place-and-route flow
+- **GTKWave** - Waveform viewer for VCD files
+
+### Hardware Synthesis Tools
+
+- **OpenLane 2** - Complete RTL-to-GDSII flow
+  - Includes Yosys, OpenROAD, Magic, and other open-source tools
+  - Installation guide: [OpenLane 2 Documentation](https://openlane2.readthedocs.io/)
+
+### Install Python Dependencies
 
 ```bash
 python -m venv venv
-
 source venv/bin/activate
-
-# Install packages from requirements.txt
 pip install -r requirements.txt
 ```
-- Once all setup, you can run any test with simple python commands
+
+### Install GTKWave
+
+**Ubuntu/Debian:**
 ```bash
-# Example
+sudo apt-get install gtkwave
+```
+
+**macOS:**
+```bash
+brew install gtkwave
+```
+
+**Windows:**
+Download from [GTKWave website](http://gtkwave.sourceforge.net/)
+
+## Test Runner Utility
+
+This project includes a comprehensive test runner utility (`tests/utils/hdl_test_utils.py`) that simplifies hardware testing and debugging:
+
+### Features
+
+- **Automated Unit Testing**: Run HDL module tests with proper setup/teardown
+- **VCD Generation**: Automatically generate waveform files for signal analysis
+- **Verilog Output**: Convert MyHDL designs to Verilog
+- **Organized Output**: Automatically organizes files by component and test name
+
+### Usage
+
+```python
+from tests.utils.hdl_test_utils import test_runner
+
+# Run a test with VCD and Verilog generation
+self.sim = test_runner(
+    self.create_fp8_processing_array,    # DUT creation function
+    lambda: test_sequence,               # Test stimulus generator
+    clk=self.clk,                       # Clock signal
+    period=10,                          # Clock period
+    dut_name="fp8_processing_array",    # Name for output files
+    vcd_output=True,                    # Generate VCD for GTKWave
+    verilog_output=True,                # Generate Verilog
+    duration=2000                       # Simulation duration
+)
+```
+
+### Running Tests
+
+```bash
+# Run individual test with VCD generation
 python tests/unit/test_fp8_parallel_array.py
-# View waveform output
+
+# View generated waveforms
 gtkwave vcd/fp8processingarray/fp8_processing_array_testMatrixMultiplication.vcd
+
+# Generated Verilog files are in:
+ls gen/verilog/
+```
+
+## Synthesized Designs
+
+This project contains two main synthesized designs ready for ASIC implementation:
+
+### 1. FP8 E4M3 Processing Array (2x2)
+- **Location**: `src/hdl/components/fp8_processing_array.py`
+- **Format**: 8-bit E4M3 floating-point (1 sign, 4 exponent, 3 mantissa)
+- **Configuration**: `openlane2/fp_parallel_processor_array/config.json`
+- **Features**:
+  - Pipelined floating-point MAC units
+  - IEEE 754-style rounding and normalization
+  - Special case handling (NaN, overflow, underflow)
+  - Parallel matrix multiplication
+
+### 2. Integer Processing Array (3x3)
+- **Location**: `src/hdl/components/processing_array_3x3.py`
+- **Format**: 8-bit signed integer with 32-bit accumulation
+- **Configuration**: `openlane2/int_parallel_processing_array_3x3/config.json`
+- **Features**:
+  - High-throughput integer MAC operations
+  - Overflow detection and saturation
+  - Scalable to larger array sizes
+
+## Synthesis with OpenLane 2
+
+### Prerequisites
+
+1. Install OpenLane 2 following the [official documentation](https://openlane2.readthedocs.io/)
+2. Generate Verilog files using the test runner or conversion scripts
+
+### Generate Verilog
+
+```bash
+# Generate Verilog for FP8 array
+python tests/unit/test_fp8_parallel_array.py
+
+# Generate Verilog for integer array
+python tests/unit/test_parallel_array_3x3.py
+```
+
+### Synthesize FP8 Processing Array
+
+```bash
+cd openlane2/fp_parallel_processor_array
+
+# Run synthesis, place and route
+openlane2 config.json
+```
+
+### Synthesize Integer Processing Array
+
+```bash
+cd openlane2/int_parallel_processing_array_3x3
+
+# Run synthesis with specific die area constraints
+openlane2 config.json
 ```
 
 ### Project Structure

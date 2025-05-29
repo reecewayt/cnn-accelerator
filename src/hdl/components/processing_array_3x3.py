@@ -1,5 +1,5 @@
 """
-3x3 Integer Processing Array for matrix multiplication
+3x3 Integer Broadcast Processing Array for matrix multiplication
 """
 
 from myhdl import *
